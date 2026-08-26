@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using HRMS.Modules.Equipment.Models;
+using HRMS.Modules.Trend.Models;
 
 namespace HRMS.Infrastructure;
 
@@ -9,6 +10,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Compressor> Compressors => Set<Compressor>();
     public DbSet<CompressorChannelSetting> CompressorChannelSettings => Set<CompressorChannelSetting>();
     public DbSet<CompressorSensorCurrent> CompressorSensorCurrents => Set<CompressorSensorCurrent>();
+    public DbSet<CompressorMeasurement> CompressorMeasurements => Set<CompressorMeasurement>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -38,6 +40,15 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         modelBuilder.Entity<CompressorSensorCurrent>(b =>
         {
             b.HasKey(x => new { x.CompressorId, x.ChannelNo });
+            b.HasOne<Compressor>()
+                .WithMany()
+                .HasForeignKey(x => x.CompressorId);
+        });
+
+        // CompressorMeasurement는 압축기 1대당 그 분(MeasuredAt)에 정확히 1행 — 계속 누적되는 이력 테이블.
+        modelBuilder.Entity<CompressorMeasurement>(b =>
+        {
+            b.HasKey(x => new { x.CompressorId, x.MeasuredAt });
             b.HasOne<Compressor>()
                 .WithMany()
                 .HasForeignKey(x => x.CompressorId);

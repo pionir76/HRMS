@@ -87,9 +87,10 @@
 ### 장비 상태 집계 (Modules/Equipment/EquipmentStatusAggregator.cs)
 
 - **채널 → 압축기**: 압축기 소속 채널 7개의 `AlarmStatus` 중 가장 심각한 것을 `Compressor.AlarmStatus`로.
-- **압축기 → 장비**: 소속 압축기들의 `CommunicationStatus`/`AlarmStatus` 중 가장 심각한 것을 장비 필드로, CH07(운전전류)이 `Equipment.RunningCurrentThreshold`를 넘는 압축기가 하나라도 있으면 `RunningStatus = 운전`.
+- **압축기 → 장비**: 소속 압축기들의 `CommunicationStatus`/`AlarmStatus` 중 가장 심각한 것을 장비 필드로, `CommunicationStatus == 연결됨`인 압축기 중 CH07(운전전류)이 `Equipment.RunningCurrentThreshold`를 넘는 압축기가 하나라도 있으면 `RunningStatus = 운전`.
 - "가장 심각한 상태"의 우선순위는 enum 선언 순서가 아니라 `AlarmSeverity`/`CommunicationSeverity` 함수로 명시적으로 정의되어 있다.
 - `RunningCurrentThreshold`가 설정 안 된 장비는 판정하지 않고 `정지`로 처리한다(안전한 기본값).
+- **통신이 끊긴 압축기는 마지막 값이 얼마였든 운전 판정에서 제외한다.** `CompressorSensorCurrent`는 통신 성공 시에만 갱신되므로, 통신이 끊기면 값이 그 자리에 얼어붙는다 — 이 조건이 없으면 "끊기기 직전 전류가 높았던 압축기"가 통신 두절 이후에도 계속 운전 중으로 잘못 집계된다. 실제로 압축기 2대를 통신 불가 상태로 만들고(마지막 값은 임계값보다 훨씬 높게 유지) 장비가 정지로 정확히 판정되는지 검증했다.
 
 ## 4. 데이터 모델 (Modules/Equipment/Models/)
 
@@ -104,13 +105,30 @@ Compressor (압축기) ── IpAddress, MacAddress, CommunicationStatus, AlarmS
 CompressorChannelSetting        CompressorSensorCurrent
 (사용여부, 경보 상/하한,          (채널별 현재값 — 폴링마다 덮어씀, 누적 안 됨)
  지연시간, 표시 소수점)           + AlarmStatus, PendingSince (경보 판정용 상태)
+                                  │
+                                  │ 1분마다 스냅샷
+                                  ▼
+                          CompressorMeasurement (Modules/Trend)
+                          (Ch01~07 + RunningStatus/AlarmStatus/CommunicationStatus,
+                           계속 누적됨 — CompressorSensorCurrent와 달리 안 지워짐)
 ```
 
 - `Equipment`, `Compressor`는 `Id` 기반 일반 기본키.
 - `CompressorChannelSetting`, `CompressorSensorCurrent`는 압축기 1대당 정확히 7행(CH01~07)이 고정이라 `(CompressorId, ChannelNo)` 복합키를 쓴다 — 의미 없는 별도 일련번호를 만들지 않기 위함.
+- `CompressorMeasurement`는 압축기 1대당 그 분(`MeasuredAt`)에 정확히 1행이라 `(CompressorId, MeasuredAt)` 복합키. 채널은 행이 아니라 컬럼(Ch01~07)으로 펼쳐서 저장한다(하루 데이터량을 7분의 1로 줄이기 위함).
 - `Compressor`는 의도적으로 필드가 적다. IP/포트/타임아웃 등 상당수는 시스템 공통값이거나 아직 필요하지 않아 뺐다.
 - `Equipment.RunningStatus`/`AlarmStatus`/`CommunicationStatus`는 관리자가 설정하는 `Equipment.Status`(운영/미운영 등)와 완전히 다른 개념이다 — 압축기 데이터로부터 매 폴링 사이클 자동 계산되는 실시간 파생값이다.
 - `AlarmStatus`(Modules/Alarm/Models)는 5가지 상태만 있다: 정상/경보발생대기/경보발생/정상복귀대기/경보비활성화. "경보확인"과 "경보해제"는 상태로 존재하지 않는다.
+
+## 5.1 트렌드 기록 (Modules/Trend/TrendRecordingService.cs)
+
+`CompressorPollingService`와 완전히 독립된 별도 `BackgroundService`. 압축기와 직접 통신하지 않고, 이미 1초마다 갱신되고 있는 `CompressorSensorCurrent`를 **매분 정각(초=0)에 스냅샷 찍어 `CompressorMeasurement`에 그대로 복사**한다.
+
+- 다음 정각까지 남은 시간을 매번 다시 계산해서 대기한다(고정 60초 대기가 아님) — 그래야 10:00:00, 10:01:00처럼 정확한 정각에 기록되고 오차가 누적되지 않는다. 기록 시각도 실행된 실제 시각이 아니라 의도된 정각 값을 그대로 쓴다.
+- `MeasuredAt`은 UTC로 계산·저장한다. Npgsql이 `timestamptz` 컬럼에 UTC(offset 0)가 아닌 `DateTimeOffset`은 거부하기 때문이다. 한국은 UTC+9시(분 단위 오차 없음)라 정각 판단 자체엔 영향이 없다.
+- 통신 이력이 한 번도 없는 압축기도 매분 행을 만든다(채널값은 NULL).
+- `RunningStatus`는 압축기 개별이 아니라 **소속 장비의 공식 `RunningStatus`를 그대로 복사**한다(사용자 결정) — 트렌드 화면에서 "왜 이 압축기 값이 그대로 유지되는지"(통신장애 때문인지) `CommunicationStatus` 컬럼으로 구분할 수 있게 하기 위함.
+- 데이터 사용량은 [Modules/Trend/README.md](../Modules/Trend/README.md)에 실측치로 정리되어 있다(하루 약 52MB, 1년 약 18.4GB, 압축기 244대 기준).
 
 ## 5. 조회 API (Modules/Equipment/Controllers/)
 
@@ -123,10 +141,16 @@ CompressorChannelSetting        CompressorSensorCurrent
 | `GET /api/equipments/{id}/compressors` | 해당 장비의 압축기 목록(통신/경보 상태 포함) |
 | `GET /api/compressors` | 압축기 전체 목록(소속 장비명 조인 포함) |
 | `GET /api/compressors/{id}/channels` | 해당 압축기의 CH01~07 현재값 |
+| `GET /api/compressors/{id}/trend?date=yyyy-MM-dd` | 해당 압축기의 하루치 트렌드(1분 단위, 채널 전체 + 상태 스냅샷). `date` 생략 시 오늘(한국 시간) |
+| `GET /api/equipments/{id}/utilization?from=yyyy-MM-dd&to=yyyy-MM-dd` | 지정 기간의 장비 가동률(%). `to` 생략 시 `from` 하루, 둘 다 생략 시 오늘 |
 
 enum(운영상태, 통신상태, 경보상태, 채널번호)은 전부 `"운영"`, `"연결됨"`, `"CH01"`처럼 사람이 읽을 수 있는 문자열로 응답에 나간다. 이 변환은 항상 DB에서 엔티티를 먼저 가져온 뒤(`ToListAsync()` 등) 메모리에서 처리한다 — EF Core가 SQL 안에서 enum 문자열 변환을 안정적으로 처리하지 못할 수 있어서다.
 
 > 참고: 장비의 새 필드(`RunningStatus` 등)는 아직 `EquipmentDto`에 노출되어 있지 않다. 필요해지면 DTO에 추가하면 된다.
+
+### 트렌드 조회(`/trend`)의 날짜 처리
+
+`date`는 사용자가 생각하는 **한국 시간(KST) 기준 하루**로 해석한다. DB엔 UTC로 저장돼 있어서, 컨트롤러가 `날짜 00:00 KST ~ 다음날 00:00 KST` 구간을 UTC로 변환해서 조회한다. 이 변환에도 `TrendRecordingService`와 같은 제약이 적용된다 — Npgsql은 쿼리 파라미터로 넘기는 `DateTimeOffset`도 UTC(offset 0)만 받아서, `ToUniversalTime()`을 반드시 거쳐야 한다. 실제로 하루 경계(전날 23:59 / 당일 00:00 / 당일 23:59 / 다음날 00:00)를 데이터로 넣어서 정확히 그 날짜만 걸러지는지 검증했다.
 
 ## 6. 테스트 모드
 
@@ -139,7 +163,6 @@ enum(운영상태, 통신상태, 경보상태, 채널번호)은 전부 `"운영"
 
 이 프로젝트의 목표 기능 중 아래는 아직 구현되지 않았다 (설계는 [overview.md](overview.md)에 있음).
 
-- **1분 단위 트렌드 기록** — `CompressorSensorCurrent`와는 별개로, 누적되는 이력 테이블과 1분 주기 배치
 - **로그인/사용자 계정**
 - **레포트 데이터 관리** (점검일지/운영일지/게시판 등)
 

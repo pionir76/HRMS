@@ -16,6 +16,9 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // 압축기 폴링 백그라운드 서비스 — 앱 시작과 함께 자동으로 돌기 시작한다 (Modules/Communication/CompressorPollingService.cs)
 builder.Services.AddHostedService<HRMS.Modules.Communication.CompressorPollingService>();
 
+// 1분 정각마다 트렌드(DailyTrend)를 기록하는 백그라운드 서비스 (Modules/Trend/TrendRecordingService.cs)
+builder.Services.AddHostedService<HRMS.Modules.Trend.TrendRecordingService>();
+
 // Add services to the container.
 builder.Host.UseWindowsService(); // 운영 시 Windows Service로 등록 실행, 콘솔 모드 실행도 그대로 지원
 

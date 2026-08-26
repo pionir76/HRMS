@@ -55,6 +55,10 @@ public static class EquipmentStatusAggregator
             return false; // 임계값 미설정 상태에서는 판정하지 않고 정지로 본다
 
         return members.Any(c =>
+            // 통신이 끊기거나(끊김) 막 끊긴 상태(재접속중)인 압축기는 CH07 값을 신뢰할 수 없으므로
+            // 이전 값이 임계값을 넘었더라도 정지로 간주한다. 값을 갱신할 방법이 없어 그대로 얼어있는
+            // 값이라, 이 조건이 없으면 통신이 끊긴 뒤에도 계속 운전 중으로 잘못 판정된다.
+            c.CommunicationStatus == CommunicationStatus.연결됨 &&
             channelsByCompressor.TryGetValue(c.Id, out var channels) &&
             channels.FirstOrDefault(ch => ch.ChannelNo == ChannelNo.CH07) is { } ch07 &&
             ch07.Value > threshold);
