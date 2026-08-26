@@ -179,6 +179,26 @@ Remove-Item Env:\PGPASSWORD
 
 `1708`이 나오면 완료.
 
+## 9. 경보/운전 판정 기본값 적용
+
+`CompressorChannelSetting`의 경보 상/하한과 `Equipment`의 운전전류 임계값은 시드 직후엔 비어 있어서 판정이 되지 않는다. `Infrastructure/Seed/apply_alarm_defaults.sql`을 실행하면 전체 채널에 상한 1000·하한 0·표시소수점 1자리를 채우고, 전체 장비에 운전전류 임계값 10을 채운다. **8단계가 먼저 끝나 있어야 한다.**
+
+```powershell
+$env:PGPASSWORD = "1234"
+$psql = "C:\Program Files\PostgreSQL\17\bin\psql.exe"
+& $psql -h localhost -p 5432 -U hrms_app -d hrms -f "Infrastructure\Seed\apply_alarm_defaults.sql"
+Remove-Item Env:\PGPASSWORD
+```
+
+`UPDATE 1708`, `UPDATE 105`가 출력되면 정상. 실제 값이 정해지면 이 기본값은 웹 화면(또는 직접 SQL)에서 장비/채널별로 다시 조정하면 된다.
+
+## 10. 테스트 모드 (실제 장비 네트워크 없이 전체 흐름 확인)
+
+`appsettings.Development.json`의 `"Communication": { "TestMode": true }`가 켜져 있으면 실제 TCP 통신 없이 전 압축기가 정상 통신하는 것으로 가정하고 랜덤값을 채운다. 통신상태·경보판정·장비상태 집계까지 전부 실제로 동작하는 걸 확인할 수 있다 (자세한 동작은 [program-flow.md](program-flow.md) 6장 참고).
+
+- 켜기/끄기는 설정값만 바꾸고 **앱 재시작**하면 된다.
+- 운영용 `appsettings.json`은 기본 `false` — 실제 현장 배포 시에는 반드시 꺼진 상태인지 확인한다.
+
 ## 문제 해결
 
 | 증상                                                                                     | 원인 / 조치                                                                                                                                                                         |
@@ -207,3 +227,39 @@ SELECT * FROM "Equipments" LIMIT 5;
 ```나가기
 \q
 ````
+
+## 임시 테스트 상태 (현장 배포 전 원복 필요)
+
+Communication 모듈(PC-Link 통신) 개발 중, 실제 압축기 네트워크에 접근할 수 없어서 **압축기 1번(`인증환경챔버&쇼크룸`, PT배기환경시험동)의 IP를 테스트용 IP로 임시 변경**해서 폴링 서비스(`CompressorPollingService`) 동작 검증에 사용하고 있다.
+
+| 구분 | 값 |
+|---|---|
+| 압축기 | Id=1, `인증환경챔버&쇼크룸` (PT배기환경시험동) |
+| 현재 IP (테스트용) | `59.16.212.252` |
+| **원래 IP (현장 배포 전 복구 필요)** | `10.90.190.235` |
+
+현장 배포 전에 반드시 아래 SQL로 원래 IP로 되돌려야 한다.
+
+```sql
+UPDATE "Compressors" SET "IpAddress" = '10.90.190.235', "CommunicationStatus" = 1 WHERE "Id" = 1;
+```
+
+(`CommunicationStatus = 1`은 `끊김` — 실제 폴링이 시작되기 전 기본 상태로 초기화하는 값이다.)
+
+## 폴링 로그 조용히 하기 (선택)
+
+`CompressorPollingService`가 1초마다 계속 도는데, 기본 로깅 설정상 EF Core가 실행하는 모든 SQL(SELECT/UPDATE)이 콘솔에 그대로 찍혀서 화면이 계속 스크롤된다. 에러는 아니고 정상 동작이지만, 개발 중 콘솔이 시끄러우면 `appsettings.Development.json`의 `Logging.LogLevel`에 아래 한 줄을 추가하면 EF Core 쿼리 로그가 사라지고 경고/에러만 남는다.
+
+```json
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning",
+      "Microsoft.EntityFrameworkCore": "Warning"
+    }
+  }
+}
+```
+
+운영 환경(`appsettings.json`)에도 동일하게 적용하면 실제 배포 후에도 조용해진다.

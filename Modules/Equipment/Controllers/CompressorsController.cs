@@ -1,0 +1,43 @@
+using HRMS.Infrastructure;
+using HRMS.Modules.Equipment.Models;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+
+namespace HRMS.Modules.Equipment.Controllers;
+
+// 압축기 조회 API.
+[ApiController]
+[Route("api/compressors")]
+public class CompressorsController(AppDbContext db) : ControllerBase
+{
+    // GET api/compressors — 전체 압축기 목록(소속 장비명 조인 포함), 대시보드용 평탄화된 목록
+    [HttpGet]
+    public async Task<ActionResult<List<CompressorFlatDto>>> GetAll()
+    {
+        var rows = await (
+            from c in db.Compressors
+            join e in db.Equipments on c.EquipmentId equals e.Id
+            select new { c, e.BuildingName, e.Name }
+        ).ToListAsync();
+
+        return Ok(rows.Select(r => new CompressorFlatDto(
+            r.c.Id, r.BuildingName, r.Name, r.c.IpAddress, r.c.MacAddress,
+            r.c.CommunicationStatus.ToString(), r.c.AlarmStatus.ToString())).ToList());
+    }
+
+    // GET api/compressors/{id}/channels — 해당 압축기의 CH01~07 현재값
+    // (CompressorPollingService가 매초 갱신하는 CompressorSensorCurrent를 그대로 조회)
+    [HttpGet("{id}/channels")]
+    public async Task<ActionResult<List<ChannelValueDto>>> GetChannels(int id)
+    {
+        if (await db.Compressors.FindAsync(id) is null)
+            return NotFound();
+
+        var entities = await db.CompressorSensorCurrents
+            .Where(s => s.CompressorId == id)
+            .OrderBy(s => s.ChannelNo)
+            .ToListAsync();
+
+        return Ok(entities.Select(s => new ChannelValueDto(s.ChannelNo.ToString(), s.Value, s.MeasuredAt)).ToList());
+    }
+}

@@ -3,6 +3,7 @@ using System;
 using HRMS.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace HRMS.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260826015846_AddCompressorSensorCurrent")]
+    partial class AddCompressorSensorCurrent
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -69,9 +72,6 @@ namespace HRMS.Migrations
                     b.Property<bool>("AlarmEnabled")
                         .HasColumnType("boolean");
 
-                    b.Property<int>("DecimalPlaces")
-                        .HasColumnType("integer");
-
                     b.Property<bool>("Enabled")
                         .HasColumnType("boolean");
 
@@ -94,13 +94,7 @@ namespace HRMS.Migrations
                     b.Property<int>("ChannelNo")
                         .HasColumnType("integer");
 
-                    b.Property<int>("AlarmStatus")
-                        .HasColumnType("integer");
-
                     b.Property<DateTimeOffset>("MeasuredAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset?>("PendingSince")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<decimal>("Value")
@@ -119,18 +113,12 @@ namespace HRMS.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
-                    b.Property<int>("AlarmStatus")
-                        .HasColumnType("integer");
-
                     b.Property<string>("BuildingName")
                         .IsRequired()
                         .HasColumnType("text");
 
                     b.Property<decimal?>("ChargeAmount")
                         .HasColumnType("numeric");
-
-                    b.Property<int>("CommunicationStatus")
-                        .HasColumnType("integer");
 
                     b.Property<decimal?>("CompressorCapacity")
                         .HasColumnType("numeric");
@@ -193,9 +181,6 @@ namespace HRMS.Migrations
 
                     b.Property<decimal?>("RunningCurrentThreshold")
                         .HasColumnType("numeric");
-
-                    b.Property<int>("RunningStatus")
-                        .HasColumnType("integer");
 
                     b.Property<decimal?>("SafetyValveSetPointCondenser")
                         .HasColumnType("numeric");
