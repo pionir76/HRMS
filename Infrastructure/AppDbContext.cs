@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using HRMS.Modules.Equipment.Models;
 using HRMS.Modules.Trend.Models;
+using HRMS.Modules.Auth.Models;
+using HRMS.Modules.Logging.Models;
 
 namespace HRMS.Infrastructure;
 
@@ -11,6 +13,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<CompressorChannelSetting> CompressorChannelSettings => Set<CompressorChannelSetting>();
     public DbSet<CompressorSensorCurrent> CompressorSensorCurrents => Set<CompressorSensorCurrent>();
     public DbSet<CompressorMeasurement> CompressorMeasurements => Set<CompressorMeasurement>();
+    public DbSet<User> Users => Set<User>();
+    public DbSet<EventLog> EventLogs => Set<EventLog>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -53,5 +57,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .WithMany()
                 .HasForeignKey(x => x.CompressorId);
         });
+
+        modelBuilder.Entity<User>()
+            .HasIndex(u => u.Username)
+            .IsUnique();
     }
 }

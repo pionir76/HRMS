@@ -1,5 +1,6 @@
 using HRMS.Infrastructure;
 using HRMS.Modules.Equipment.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -9,6 +10,7 @@ namespace HRMS.Modules.Equipment.Controllers;
 // (이 규모의 시스템에서는 매 요청 DB 직접 조회로 충분 — overview.md 4.4 참고).
 [ApiController]
 [Route("api/equipments")]
+[Authorize]
 public class EquipmentsController(AppDbContext db) : ControllerBase
 {
     // GET api/equipments — 장비 전체 목록

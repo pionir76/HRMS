@@ -192,7 +192,34 @@ Remove-Item Env:\PGPASSWORD
 
 `UPDATE 1708`, `UPDATE 105`가 출력되면 정상. 실제 값이 정해지면 이 기본값은 웹 화면(또는 직접 SQL)에서 장비/채널별로 다시 조정하면 된다.
 
-## 10. 테스트 모드 (실제 장비 네트워크 없이 전체 흐름 확인)
+## 10. 로그인 인증 설정 (JWT 서명 키)
+
+로그인 토큰(JWT) 서명에 쓰는 비밀 키를 `appsettings.json`(운영) 또는 `appsettings.Development.json`(개발)에 넣어야 한다. 개발 환경에는 이미 키가 들어있지만, **운영 서버에는 별도로 새 키를 생성해서 넣어야 한다** (개발용 키를 그대로 쓰면 안 됨).
+
+```json
+{
+  "Jwt": {
+    "Key": "여기에 32자 이상의 무작위 문자열",
+    "Issuer": "HRMS"
+  }
+}
+```
+
+키 생성 예시 (PowerShell):
+
+```powershell
+[Convert]::ToBase64String((1..48 | ForEach-Object { Get-Random -Maximum 256 }))
+```
+
+앱을 처음 실행하면(마이그레이션 적용 후) `Users` 테이블이 비어있을 경우 관리자 계정이 자동으로 하나 생성된다.
+
+| 아이디 | 임시 비밀번호 |
+|---|---|
+| `admin` | `admin1234` |
+
+**최초 로그인 후 반드시 비밀번호를 바꿀 것** (현재는 비밀번호 변경 API가 없으므로, DB에서 직접 새 해시 값으로 갱신하거나 추후 추가될 사용자 관리 기능을 사용).
+
+## 11. 테스트 모드 (실제 장비 네트워크 없이 전체 흐름 확인)
 
 `appsettings.Development.json`의 `"Communication": { "TestMode": true }`가 켜져 있으면 실제 TCP 통신 없이 전 압축기가 정상 통신하는 것으로 가정하고 랜덤값을 채운다. 통신상태·경보판정·장비상태 집계까지 전부 실제로 동작하는 걸 확인할 수 있다 (자세한 동작은 [program-flow.md](program-flow.md) 6장 참고).
 

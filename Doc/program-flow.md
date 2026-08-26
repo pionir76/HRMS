@@ -40,8 +40,10 @@
 1. `AddControllers()` — REST API 컨트롤러 활성화
 2. `AddDbContext<AppDbContext>()` — PostgreSQL 연결 (연결 문자열은 `appsettings.Development.json`)
 3. `AddHostedService<CompressorPollingService>()` — 앱이 뜨자마자 폴링 루프가 백그라운드에서 자동 시작됨 (별도로 실행시킬 필요 없음)
-4. `UseWindowsService()` — 운영 환경에서는 Windows Service로, 개발 중에는 콘솔 앱으로 동일하게 동작
-5. `MapControllers()` — 아래 컨트롤러들의 라우팅 활성화
+4. JWT 인증 등록(`AddAuthentication().AddJwtBearer(...)`) — 서명 키/발급자는 `Jwt:Key`, `Jwt:Issuer` 설정값 (자세한 내용은 8장 참고)
+5. `Users` 테이블이 비어있으면 관리자 계정(`admin`/`admin1234`)을 자동 생성 (최초 1회만 동작)
+6. `UseWindowsService()` — 운영 환경에서는 Windows Service로, 개발 중에는 콘솔 앱으로 동일하게 동작
+7. `UseAuthentication()` → `UseAuthorization()` → `MapControllers()` — 아래 컨트롤러들의 라우팅 활성화
 
 ## 3. 압축기 폴링 루프 (Modules/Communication/CompressorPollingService.cs)
 
@@ -134,6 +136,8 @@ CompressorChannelSetting        CompressorSensorCurrent
 
 서비스/리포지토리 계층 없이 컨트롤러가 `AppDbContext`를 직접 조회한다. 이 규모(사용자 20명, 압축기 수백 대)에서는 매 요청 DB 직접 조회로 충분하다고 판단해서 별도 캐시를 두지 않았다.
 
+아래 4개 컨트롤러(Equipments/Compressors/Trend/Utilization)는 전부 클래스 레벨에 `[Authorize]`가 붙어 있어, 로그인해서 받은 토큰 없이는 호출할 수 없다 (8장 참고).
+
 | 엔드포인트 | 설명 |
 |---|---|
 | `GET /api/equipments` | 장비 전체 목록 |
@@ -159,11 +163,36 @@ enum(운영상태, 통신상태, 경보상태, 채널번호)은 전부 `"운영"
 - 켜져 있으면: 모든 압축기가 항상 통신 성공한 것으로 처리, CH01~07에 `-200~1200` 랜덤값 생성
 - 꺼져 있으면: 실제 `PcLinkClient`로 통신
 
-## 7. 아직 없는 것
+## 8. 로그인 인증 (Modules/Auth, Modules/Logging)
+
+Identity 프레임워크 전체는 쓰지 않고, JWT 발급 + `[Authorize]`만으로 최소하게 구성했다.
+
+```text
+POST /api/auth/login { username, password }
+  │
+  ▼
+AuthController
+  1. Users 테이블에서 username 조회 (IsActive=true인 것만)
+  2. PasswordHasher<User>.VerifyHashedPassword로 비밀번호 검증
+  3. 성공 시 EventLog(UserAccess)에 "로그인" 기록
+  4. JwtTokenService가 서명된 JWT 발급 (12시간 만료, refresh 없음)
+  ▼
+응답: { token, username, role, canEmergencyStop }
+```
+
+- `User`(Modules/Auth/Models): `Username`, `PasswordHash`, `Role`(조회/운영/관리자), `CanEmergencyStop`(비상정지는 역할과 별개의 독립 권한), `IsActive`.
+- 비밀번호는 `Microsoft.AspNetCore.Identity`의 `PasswordHasher<T>` 클래스만 가져와 씀 (Identity 전체 프레임워크의 UserManager/SignInManager 등은 안 씀).
+- 로그인 이후 요청은 `Authorization: Bearer {token}` 헤더로 인증한다. 기존 조회 컨트롤러 4개는 전부 `[Authorize]`가 붙어 토큰 없이는 호출 불가.
+- `POST /api/auth/logout`은 서버가 토큰을 무효화하지는 않는다(JWT는 상태가 없어서 블랙리스트 없이는 그럴 수 없음) — 프론트가 토큰을 버리면 그걸로 로그아웃이고, 이 엔드포인트는 EventLog에 "로그아웃" 기록만 남긴다.
+- `EventLog`(Modules/Logging): 카테고리별(`UserAccess`/`EmergencyStop`/`Communication`/`Alarm`/`System`) 단일 테이블. 현재는 `UserAccess`(로그인/로그아웃)만 실제로 기록되고 있고, 나머지는 각 기능을 만들 때 `EventLogger.LogAsync(...)` 한 줄만 추가하면 된다.
+- 최초 관리자 계정(`admin`/`admin1234`)은 `Program.cs`에서 `Users` 테이블이 비어있을 때 자동 생성된다 (setup.md 10장 참고). 계정 잠금, 비밀번호 재설정, 사용자 관리 API는 20명 규모에 비해 과하다고 판단해 구현하지 않았다.
+
+## 9. 아직 없는 것
 
 이 프로젝트의 목표 기능 중 아래는 아직 구현되지 않았다 (설계는 [overview.md](overview.md)에 있음).
 
-- **로그인/사용자 계정**
+- **비상정지** (WRD로 D1805 비트 토글 — 정확한 비트 위치 미확정)
+- **사용자 관리 API** (계정 생성/수정/역할 변경 — 현재는 최초 관리자만 자동 시드)
 - **레포트 데이터 관리** (점검일지/운영일지/게시판 등)
 
 지금 구조(단순 엔티티 + `BackgroundService` + 얇은 컨트롤러)가 위 기능들을 이어 붙이는 데 구조적인 걸림돌은 없어 보인다 — 특히 트렌드 기록은 `CompressorPollingService`와 같은 패턴(주기 실행 + DB 반영)을 재사용하면 된다.

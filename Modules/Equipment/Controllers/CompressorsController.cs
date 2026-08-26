@@ -1,5 +1,6 @@
 using HRMS.Infrastructure;
 using HRMS.Modules.Equipment.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -8,6 +9,7 @@ namespace HRMS.Modules.Equipment.Controllers;
 // 압축기 조회 API.
 [ApiController]
 [Route("api/compressors")]
+[Authorize]
 public class CompressorsController(AppDbContext db) : ControllerBase
 {
     // GET api/compressors — 전체 압축기 목록(소속 장비명 조인 포함), 대시보드용 평탄화된 목록

@@ -1,5 +1,6 @@
 using HRMS.Infrastructure;
 using HRMS.Modules.Trend.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -7,6 +8,7 @@ namespace HRMS.Modules.Trend.Controllers;
 
 [ApiController]
 [Route("api/compressors/{compressorId}/trend")]
+[Authorize]
 public class TrendController(AppDbContext db) : ControllerBase
 {
     private static readonly TimeSpan KstOffset = TimeSpan.FromHours(9);

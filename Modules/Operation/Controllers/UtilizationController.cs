@@ -1,5 +1,6 @@
 using HRMS.Infrastructure;
 using HRMS.Modules.Operation.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -7,6 +8,7 @@ namespace HRMS.Modules.Operation.Controllers;
 
 [ApiController]
 [Route("api/equipments/{equipmentId}/utilization")]
+[Authorize]
 public class UtilizationController(AppDbContext db) : ControllerBase
 {
     private static readonly TimeSpan KstOffset = TimeSpan.FromHours(9);
