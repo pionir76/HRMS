@@ -3,12 +3,11 @@ using HRMS.Modules.Equipment.Models;
 
 namespace HRMS.Modules.Alarm;
 
+//--------------------------------------------------------------------------------//
 // 채널 하나의 경보 상태를 판정한다. CompressorPollingService가 값을 갱신한 직후 채널마다 호출한다.
-// 상태 전이 (overview.md 4.6, 단 경보확인은 시스템 사양에 없어서 제외):
 //   정상 --(범위 밖)--> 경보발생대기 --(AlarmDelaySeconds 경과)--> 경보발생
 //   경보발생 --(범위 안)--> 정상복귀대기 --(AlarmClearDelaySeconds 경과)--> 정상
-// 경보발생 상태에서는 사용자 확인 없이 값이 정상 범위로 돌아올 때까지 그대로 유지된다.
-// 히스테리시스는 두지 않는다(이미 필드 자체를 뺀 상태) — 경계값 근처에서는 상태가 자주 바뀔 수 있다.
+//--------------------------------------------------------------------------------//
 public static class AlarmEvaluator
 {
     public static void Evaluate(CompressorSensorCurrent current, CompressorChannelSetting setting, DateTimeOffset now)
@@ -20,8 +19,8 @@ public static class AlarmEvaluator
             return;
         }
 
-        bool inRange = current.Value >= (setting.LowerLimit ?? decimal.MinValue)
-                    && current.Value <= (setting.UpperLimit ?? decimal.MaxValue);
+        bool inRange = current.Value >= (setting.LowerLimit ?? short.MinValue)
+                    && current.Value <= (setting.UpperLimit ?? short.MaxValue);
 
         var delay = TimeSpan.FromSeconds(setting.AlarmDelaySeconds ?? 0);
         var clearDelay = TimeSpan.FromSeconds(setting.AlarmClearDelaySeconds ?? 0);

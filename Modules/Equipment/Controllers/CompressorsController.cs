@@ -28,7 +28,7 @@ public class CompressorsController(AppDbContext db) : ControllerBase
     }
 
     // GET api/compressors/{id}/channels — 해당 압축기의 CH01~07 현재값
-    // (CompressorPollingService가 매초 갱신하는 CompressorSensorCurrent를 그대로 조회)
+    // (CompressorPollingService가 3초마다 갱신하는 CompressorSensorCurrent를 그대로 조회)
     [HttpGet("{id}/channels")]
     public async Task<ActionResult<List<ChannelValueDto>>> GetChannels(int id)
     {

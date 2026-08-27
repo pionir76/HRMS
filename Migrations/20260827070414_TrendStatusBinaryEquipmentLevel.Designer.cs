@@ -3,6 +3,7 @@ using System;
 using HRMS.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace HRMS.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260827070414_TrendStatusBinaryEquipmentLevel")]
+    partial class TrendStatusBinaryEquipmentLevel
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -186,9 +189,6 @@ namespace HRMS.Migrations
                     b.Property<DateOnly?>("InstallDate")
                         .HasColumnType("date");
 
-                    b.Property<bool>("IsRunning")
-                        .HasColumnType("boolean");
-
                     b.Property<string>("KgsManagementNumber")
                         .HasColumnType("text");
 
@@ -232,6 +232,9 @@ namespace HRMS.Migrations
 
                     b.Property<short?>("RunningCurrentThreshold")
                         .HasColumnType("smallint");
+
+                    b.Property<int>("RunningStatus")
+                        .HasColumnType("integer");
 
                     b.Property<decimal?>("SafetyValveSetPointCondenser")
                         .HasColumnType("numeric");
@@ -314,8 +317,8 @@ namespace HRMS.Migrations
                     b.Property<bool>("IsConnected")
                         .HasColumnType("boolean");
 
-                    b.Property<bool>("IsRunning")
-                        .HasColumnType("boolean");
+                    b.Property<int>("RunningStatus")
+                        .HasColumnType("integer");
 
                     b.HasKey("CompressorId", "MeasuredAt");
 

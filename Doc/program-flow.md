@@ -10,7 +10,7 @@
    ├─ DbContext(PostgreSQL) 등록
    └─ CompressorPollingService 등록 → 백그라운드에서 자동 시작
              │
-             │ (1초마다 무한 반복)
+             │ (3초마다 무한 반복)
              ▼
    ┌───────────────────────────────────────────┐
    │ CompressorPollingService                   │
@@ -53,7 +53,7 @@
 
 1. **대상 조회** — `Compressors`와 `Equipments`를 조인해서, 소속 장비가 미운영/철거/사용중지가 아닌 압축기만 뽑는다 (테스트 모드가 아니면 IP가 있는 것만).
 2. **동시 통신** — 뽑힌 압축기 전부에 대해 값을 동시에 읽는다.
-   - **테스트 모드**(`Communication:TestMode = true`): 실제 통신 없이 항상 성공 처리하고, CH01~07에 `-200~1200` 범위의 랜덤값을 채운다. 기본 경보 상/하한(0~1000)을 자연스럽게 넘나들도록 범위를 넉넉하게 잡아서, 경보 상태 전이를 실제로 관찰할 수 있게 했다.
+   - **테스트 모드**(`Communication:TestMode = true`): 실제 통신 없이 항상 성공 처리하고, CH01~07에 `-200~1200`(raw int16 기준) 범위의 랜덤값을 채운다. 기본 경보 상/하한(raw 0~1000)을 자연스럽게 넘나들도록 범위를 넉넉하게 잡아서, 경보 상태 전이를 실제로 관찰할 수 있게 했다.
    - **실제 모드**: `PcLinkClient.ReadChannelsAsync()`를 `Task.WhenAll`로 동시 호출. 압축기 하나가 타임아웃 나도 `try/catch`로 감싸져 있어서 다른 압축기 호출에 영향을 주지 않는다.
    - 이 단계에서는 DB에 아무것도 쓰지 않는다(동시 실행 중 `DbContext`를 건드리면 스레드 안전성 문제가 생기므로, 결과만 메모리에 모아둔다).
 3. **통신상태 반영** — 성공하면 `연결됨`, 실패인데 직전이 `연결됨`이었으면 `재접속중`, 그 외 실패는 `끊김`.
@@ -69,7 +69,7 @@
 - 읽는 레지스터, 국번, 포트가 전부 고정값(상수)이라 매번 조립할 필요 없이 같은 명령을 계속 보낸다.
 - 체크섬은 실제로 계산한다 (`(문자열 바이트 합) mod 256`을 16진수로).
 - 응답이 `OK`가 아니거나 체크섬이 안 맞으면 이유를 따지지 않고 전부 실패 처리한다.
-- 레지스터 값은 16비트 2의 보수로 해석해서 영하 온도 같은 음수도 정확히 변환한다.
+- 레지스터 값은 16비트 2의 보수로 해석해서 영하 온도 같은 음수도 정확히 변환한다. 변환한 값은 원시값(raw int16) 그대로 반환하며, 소수점 스케일링은 여기서도 이후 어디서도 하지 않는다 — 프론트가 표시할 때 담당한다.
 - **테스트 모드일 때는 아예 호출되지 않는다** — 실제 장비 네트워크 없이도 전체 파이프라인(통신상태 → 경보 판정 → 장비 집계)을 검증할 수 있게 하기 위함.
 
 ### 경보 판정 (Modules/Alarm/AlarmEvaluator.cs)
@@ -88,17 +88,17 @@
 
 ### 장비 상태 집계 (Modules/Equipment/EquipmentStatusAggregator.cs)
 
-- **채널 → 압축기**: 압축기 소속 채널 7개의 `AlarmStatus` 중 가장 심각한 것을 `Compressor.AlarmStatus`로.
-- **압축기 → 장비**: 소속 압축기들의 `CommunicationStatus`/`AlarmStatus` 중 가장 심각한 것을 장비 필드로, `CommunicationStatus == 연결됨`인 압축기 중 CH07(운전전류)이 `Equipment.RunningCurrentThreshold`를 넘는 압축기가 하나라도 있으면 `RunningStatus = 운전`.
-- "가장 심각한 상태"의 우선순위는 enum 선언 순서가 아니라 `AlarmSeverity`/`CommunicationSeverity` 함수로 명시적으로 정의되어 있다.
-- `RunningCurrentThreshold`가 설정 안 된 장비는 판정하지 않고 `정지`로 처리한다(안전한 기본값).
+- 경보는 "정상", 통신은 "연결됨"만 문제없는 상태다. 나머지는 전부 "문제없음이 아님"이라는 같은 의미이고, 여러 하위 상태가 섞여 있을 때 어느 걸 표시용으로 고를지는 우선순위를 나열한 `AggregateAlarm`/`AggregateCommunication`(`if (있으면) return 그 값;`을 순서대로 나열, 제네릭이나 점수 계산 없음)이 정한다.
+- **채널 → 압축기**: 압축기 소속 채널 7개의 `AlarmStatus`를 `AggregateAlarm`에 넘겨 `Compressor.AlarmStatus`로.
+- **압축기 → 장비**: 소속 압축기들의 `CommunicationStatus`/`AlarmStatus`를 각각 `AggregateCommunication`/`AggregateAlarm`에 넘겨 장비 필드로. `IsRunning`(bool)은 별도 판정 — `CommunicationStatus == 연결됨`인 압축기 중 CH07(운전전류)이 `Equipment.RunningCurrentThreshold`를 넘는 압축기가 하나라도 있으면 `true`.
+- `RunningCurrentThreshold`가 설정 안 된 장비는 판정하지 않고 `IsRunning = false`로 처리한다(안전한 기본값).
 - **통신이 끊긴 압축기는 마지막 값이 얼마였든 운전 판정에서 제외한다.** `CompressorSensorCurrent`는 통신 성공 시에만 갱신되므로, 통신이 끊기면 값이 그 자리에 얼어붙는다 — 이 조건이 없으면 "끊기기 직전 전류가 높았던 압축기"가 통신 두절 이후에도 계속 운전 중으로 잘못 집계된다. 실제로 압축기 2대를 통신 불가 상태로 만들고(마지막 값은 임계값보다 훨씬 높게 유지) 장비가 정지로 정확히 판정되는지 검증했다.
 
 ## 4. 데이터 모델 (Modules/Equipment/Models/)
 
 ```text
 Equipment (장비)
-  RunningStatus, AlarmStatus, CommunicationStatus  ← 압축기 집계 결과 (관리자가 설정하는 Status와는 별개)
+  IsRunning, AlarmStatus, CommunicationStatus  ← 압축기 집계 결과 (관리자가 설정하는 Status와는 별개)
    │ 1
    │ N
 Compressor (압축기) ── IpAddress, MacAddress, CommunicationStatus, AlarmStatus
@@ -111,25 +111,28 @@ CompressorChannelSetting        CompressorSensorCurrent
                                   │ 1분마다 스냅샷
                                   ▼
                           CompressorMeasurement (Modules/Trend)
-                          (Ch01~07 + RunningStatus/AlarmStatus/CommunicationStatus,
-                           계속 누적됨 — CompressorSensorCurrent와 달리 안 지워짐)
+                          (Ch01~07 + IsRunning/HasAlarm/IsConnected(전부 bool) — 압축기 자신이 아니라
+                           소속 Equipment의 집계 상태를 복사한 것. 계속 누적됨 — CompressorSensorCurrent와 달리 안 지워짐)
 ```
 
 - `Equipment`, `Compressor`는 `Id` 기반 일반 기본키.
 - `CompressorChannelSetting`, `CompressorSensorCurrent`는 압축기 1대당 정확히 7행(CH01~07)이 고정이라 `(CompressorId, ChannelNo)` 복합키를 쓴다 — 의미 없는 별도 일련번호를 만들지 않기 위함.
 - `CompressorMeasurement`는 압축기 1대당 그 분(`MeasuredAt`)에 정확히 1행이라 `(CompressorId, MeasuredAt)` 복합키. 채널은 행이 아니라 컬럼(Ch01~07)으로 펼쳐서 저장한다(하루 데이터량을 7분의 1로 줄이기 위함).
+- `CompressorSensorCurrent.Value`, `CompressorMeasurement.Ch01~07`은 전부 `short`(raw int16) 타입이다. TLC가 보내는 원시값을 가공 없이 그대로 저장하며, 표시용 소수점 자리수(`CompressorChannelSetting.DecimalPlaces`)는 나중에 프론트가 값을 화면에 표시할 때 쓰라고 남겨둔 값일 뿐, 백엔드 저장/계산에는 관여하지 않는다.
 - `Compressor`는 의도적으로 필드가 적다. IP/포트/타임아웃 등 상당수는 시스템 공통값이거나 아직 필요하지 않아 뺐다.
-- `Equipment.RunningStatus`/`AlarmStatus`/`CommunicationStatus`는 관리자가 설정하는 `Equipment.Status`(운영/미운영 등)와 완전히 다른 개념이다 — 압축기 데이터로부터 매 폴링 사이클 자동 계산되는 실시간 파생값이다.
+- `Equipment.IsRunning`/`AlarmStatus`/`CommunicationStatus`는 관리자가 설정하는 `Equipment.Status`(운영/미운영 등)와 완전히 다른 개념이다 — 압축기 데이터로부터 매 폴링 사이클 자동 계산되는 실시간 파생값이다. `IsRunning`은 "운전/정지" 둘뿐이라 처음부터 enum이 아니라 `bool`이다.
 - `AlarmStatus`(Modules/Alarm/Models)는 5가지 상태만 있다: 정상/경보발생대기/경보발생/정상복귀대기/경보비활성화. "경보확인"과 "경보해제"는 상태로 존재하지 않는다.
+- `Equipment`는 `(BuildingName, Name)` 조합에 유니크 인덱스가 걸려있다 — 같은 시설동에 이름이 완전히 같은 장비 두 개는 등록할 수 없다(시도하면 DB가 에러로 거부). `compressor_seed.sql`이 이 텍스트 조합으로 압축기를 소속 장비에 연결하기 때문에(Id가 아니라 이름으로 매칭), 이 유니크 제약이 깨지면 그 매칭이 압축기 하나를 두 장비에 중복 연결하는 식으로 조용히 틀어질 수 있다. 실제 자산 목록도 동명 설비는 "1호기/2호기"처럼 구분해서 이 제약을 이미 만족한다(overview.md 4.1 참고).
 
 ## 5.1 트렌드 기록 (Modules/Trend/TrendRecordingService.cs)
 
-`CompressorPollingService`와 완전히 독립된 별도 `BackgroundService`. 압축기와 직접 통신하지 않고, 이미 1초마다 갱신되고 있는 `CompressorSensorCurrent`를 **매분 정각(초=0)에 스냅샷 찍어 `CompressorMeasurement`에 그대로 복사**한다.
+`CompressorPollingService`와 완전히 독립된 별도 `BackgroundService`. 압축기와 직접 통신하지 않고, 이미 3초마다 갱신되고 있는 `CompressorSensorCurrent`를 **매분 정각(초=0)에 스냅샷 찍어 `CompressorMeasurement`에 그대로 복사**한다.
 
 - 다음 정각까지 남은 시간을 매번 다시 계산해서 대기한다(고정 60초 대기가 아님) — 그래야 10:00:00, 10:01:00처럼 정확한 정각에 기록되고 오차가 누적되지 않는다. 기록 시각도 실행된 실제 시각이 아니라 의도된 정각 값을 그대로 쓴다.
 - `MeasuredAt`은 UTC로 계산·저장한다. Npgsql이 `timestamptz` 컬럼에 UTC(offset 0)가 아닌 `DateTimeOffset`은 거부하기 때문이다. 한국은 UTC+9시(분 단위 오차 없음)라 정각 판단 자체엔 영향이 없다.
 - 통신 이력이 한 번도 없는 압축기도 매분 행을 만든다(채널값은 NULL).
-- `RunningStatus`는 압축기 개별이 아니라 **소속 장비의 공식 `RunningStatus`를 그대로 복사**한다(사용자 결정) — 트렌드 화면에서 "왜 이 압축기 값이 그대로 유지되는지"(통신장애 때문인지) `CommunicationStatus` 컬럼으로 구분할 수 있게 하기 위함.
+- `IsRunning`/`HasAlarm`/`IsConnected` 셋 다 압축기 개별이 아니라 **소속 장비의 집계 상태를 그대로 복사**한다(사용자 결정). 같은 장비의 압축기 여러 대는 이 세 값이 전부 동일하다.
+- `HasAlarm`/`IsConnected`는 `Equipment.AlarmStatus`/`CommunicationStatus`(5단계/3단계 세부 상태)를 그대로 저장하지 않고 `!= 정상`/`== 연결됨` 여부만 boolean으로 남긴다 — 장비 단위에서는 "정상이냐 아니냐", "연결됐냐 아니냐"만 의미가 있다는 원칙(경보/통신은 이분법, [EquipmentStatusAggregator.cs](../Modules/Equipment/EquipmentStatusAggregator.cs) 참고)을 트렌드 기록에도 동일하게 적용한 것이다. 트렌드 화면에서 "왜 이 압축기 값이 그대로 유지되는지"(통신장애 때문인지)는 `IsConnected`로 구분한다.
 - 데이터 사용량은 [Modules/Trend/README.md](../Modules/Trend/README.md)에 실측치로 정리되어 있다(하루 약 52MB, 1년 약 18.4GB, 압축기 244대 기준).
 
 ## 5. 조회 API (Modules/Equipment/Controllers/)
@@ -150,7 +153,9 @@ CompressorChannelSetting        CompressorSensorCurrent
 
 enum(운영상태, 통신상태, 경보상태, 채널번호)은 전부 `"운영"`, `"연결됨"`, `"CH01"`처럼 사람이 읽을 수 있는 문자열로 응답에 나간다. 이 변환은 항상 DB에서 엔티티를 먼저 가져온 뒤(`ToListAsync()` 등) 메모리에서 처리한다 — EF Core가 SQL 안에서 enum 문자열 변환을 안정적으로 처리하지 못할 수 있어서다.
 
-> 참고: 장비의 새 필드(`RunningStatus` 등)는 아직 `EquipmentDto`에 노출되어 있지 않다. 필요해지면 DTO에 추가하면 된다.
+채널값(`/channels`의 `value`, `/trend`의 `ch01`~`ch07`)은 반대로 **가공하지 않고** TLC 원시값(raw int16) 그대로 내려간다 — 소수점 변환은 백엔드 어디에서도 하지 않고 프론트가 담당한다(사용자 결정). 경보 상/하한(`CompressorChannelSetting.LowerLimit/UpperLimit`)과 운전전류 임계값(`Equipment.RunningCurrentThreshold`)도 같은 raw 스케일로 저장되어 있어서, `AlarmEvaluator`/`EquipmentStatusAggregator`의 비교 로직도 raw 값끼리 순수 정수 비교만 한다.
+
+> 참고: 장비의 새 필드(`IsRunning` 등)는 아직 `EquipmentDto`에 노출되어 있지 않다. 필요해지면 DTO에 추가하면 된다.
 
 ### 트렌드 조회(`/trend`)의 날짜 처리
 

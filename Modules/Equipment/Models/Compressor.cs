@@ -14,6 +14,6 @@ public class Compressor
     public int EquipmentId { get; set; }
     public string? IpAddress { get; set; } // 원본 자산 목록(Doc/CompList.md)에 IP가 없는 압축기가 있어 nullable
     public string? MacAddress { get; set; }
-    public CommunicationStatus CommunicationStatus { get; set; } // CompressorPollingService가 매초 갱신
-    public AlarmStatus AlarmStatus { get; set; } // 소속 채널 7개 중 가장 심각한 상태로 EquipmentStatusAggregator가 매초 갱신
+    public CommunicationStatus CommunicationStatus { get; set; } // CompressorPollingService가 3초마다 갱신
+    public AlarmStatus AlarmStatus { get; set; } // 소속 채널 7개 중 가장 심각한 상태로 EquipmentStatusAggregator가 3초마다 갱신
 }

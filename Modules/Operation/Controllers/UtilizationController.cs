@@ -25,8 +25,8 @@ public class UtilizationController(AppDbContext db) : ControllerBase
         var fromDate = from ?? today;
         var toDate = to ?? fromDate;
 
-        // 압축기 여러 대를 가진 장비는 CompressorMeasurement에 같은 분·같은 RunningStatus가
-        // 압축기 수만큼 중복 저장되어 있다(전부 장비의 RunningStatus를 그대로 복사한 값이라 비율은
+        // 압축기 여러 대를 가진 장비는 CompressorMeasurement에 같은 분·같은 IsRunning이
+        // 압축기 수만큼 중복 저장되어 있다(전부 장비의 IsRunning을 그대로 복사한 값이라 비율은
         // 동일하지만 불필요하게 여러 번 읽게 됨) — 대표 압축기 1대(Id가 가장 작은 것)만 사용한다.
         var representativeCompressorId = await db.Compressors
             .Where(c => c.EquipmentId == equipmentId)
@@ -51,7 +51,7 @@ public class UtilizationController(AppDbContext db) : ControllerBase
         // 그 비율이 실제로 며칠치 데이터를 근거로 한 건지 확인할 수 있게 한다.
         var runningMinutes = await db.CompressorMeasurements
             .Where(m => m.CompressorId == compressorId && m.MeasuredAt >= start && m.MeasuredAt < end
-                && m.RunningStatus == RunningStatus.운전)
+                && m.IsRunning)
             .CountAsync();
 
         decimal? percent = totalMinutes == 0 ? null : Math.Round(runningMinutes * 100m / totalMinutes, 1);

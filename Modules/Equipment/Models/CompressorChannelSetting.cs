@@ -9,8 +9,10 @@ public class CompressorChannelSetting
     public ChannelNo ChannelNo { get; set; }
 
     public bool Enabled { get; set; } = true; // 센서 미설치 등으로 꺼두면 경보/상태 판정에서 제외
-    public decimal? LowerLimit { get; set; }
-    public decimal? UpperLimit { get; set; }
+
+    // 채널 원시값(raw int16)과 직접 비교하는 경보 상/하한 — raw 스케일이며 소수점 가공 없음.
+    public short? LowerLimit { get; set; }
+    public short? UpperLimit { get; set; }
     public bool AlarmEnabled { get; set; } = true;
     public int? AlarmDelaySeconds { get; set; }
     public int? AlarmClearDelaySeconds { get; set; }

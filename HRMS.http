@@ -1,6 +1,46 @@
 @HRMS_HostAddress = http://localhost:5018
 
-GET {{HRMS_HostAddress}}/weatherforecast/
-Accept: application/json
+### 로그인 (먼저 이것부터 실행 — 아래 요청들이 여기서 받은 토큰을 재사용한다)
+# @name login
+POST {{HRMS_HostAddress}}/api/auth/login
+Content-Type: application/json
 
-###
+{
+  "username": "admin",
+  "password": "admin1234"
+}
+
+### 로그아웃
+POST {{HRMS_HostAddress}}/api/auth/logout
+Authorization: Bearer {{login.response.body.$.token}}
+
+### 장비 전체 목록
+GET {{HRMS_HostAddress}}/api/equipments
+Authorization: Bearer {{login.response.body.$.token}}
+
+### 장비 단건 (id=1)
+GET {{HRMS_HostAddress}}/api/equipments/1
+Authorization: Bearer {{login.response.body.$.token}}
+
+### 장비 소속 압축기 목록 (id=1)
+GET {{HRMS_HostAddress}}/api/equipments/1/compressors
+Authorization: Bearer {{login.response.body.$.token}}
+
+### 압축기 전체 목록 (소속 장비명 조인)
+GET {{HRMS_HostAddress}}/api/compressors
+Authorization: Bearer {{login.response.body.$.token}}
+
+### 압축기 CH01~07 현재값 (id=1)
+GET {{HRMS_HostAddress}}/api/compressors/1/channels
+Authorization: Bearer {{login.response.body.$.token}}
+
+### 압축기 하루치 트렌드 (id=1, date 생략 시 오늘)
+GET {{HRMS_HostAddress}}/api/compressors/1/trend
+Authorization: Bearer {{login.response.body.$.token}}
+
+### 장비 가동률 (id=1, from/to 생략 시 오늘)
+GET {{HRMS_HostAddress}}/api/equipments/1/utilization
+Authorization: Bearer {{login.response.body.$.token}}
+
+### 토큰 없이 호출 — 401 확인용
+GET {{HRMS_HostAddress}}/api/equipments

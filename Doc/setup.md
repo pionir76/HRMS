@@ -275,7 +275,7 @@ UPDATE "Compressors" SET "IpAddress" = '10.90.190.235', "CommunicationStatus" = 
 
 ## 폴링 로그 조용히 하기 (선택)
 
-`CompressorPollingService`가 1초마다 계속 도는데, 기본 로깅 설정상 EF Core가 실행하는 모든 SQL(SELECT/UPDATE)이 콘솔에 그대로 찍혀서 화면이 계속 스크롤된다. 에러는 아니고 정상 동작이지만, 개발 중 콘솔이 시끄러우면 `appsettings.Development.json`의 `Logging.LogLevel`에 아래 한 줄을 추가하면 EF Core 쿼리 로그가 사라지고 경고/에러만 남는다.
+`CompressorPollingService`가 3초마다 계속 도는데, 기본 로깅 설정상 EF Core가 실행하는 모든 SQL(SELECT/UPDATE)이 콘솔에 그대로 찍혀서 화면이 계속 스크롤된다. 에러는 아니고 정상 동작이지만, 개발 중 콘솔이 시끄러우면 `appsettings.Development.json`의 `Logging.LogLevel`에 아래 한 줄을 추가하면 EF Core 쿼리 로그가 사라지고 경고/에러만 남는다.
 
 ```json
 {
@@ -290,3 +290,18 @@ UPDATE "Compressors" SET "IpAddress" = '10.90.190.235', "CommunicationStatus" = 
 ```
 
 운영 환경(`appsettings.json`)에도 동일하게 적용하면 실제 배포 후에도 조용해진다.
+
+## 개발 중 값 확인하기 (`ILogger`)
+
+`dotnet run`으로 띄운 터미널에서 특정 값을 그때그때 확인하고 싶을 때는 `logger.LogInformation(...)`을 쓴다. `CompressorPollingService`, `TrendRecordingService` 등 대부분의 `BackgroundService`가 생성자로 `ILogger<T> logger`를 이미 받고 있으니, 그 안에서 바로 호출하면 된다.
+
+```csharp
+logger.LogInformation("channels: {Channels} {CompressorId}", channels, c.Id);
+```
+
+- `{이름}` 자리표시자는 이름이 아니라 **뒤에 나열한 인자 순서대로** 채워진다. 위 예시는 `{Channels}` ← `channels`, `{CompressorId}` ← `c.Id` 순서다.
+- 문자열 보간(`$"channels: {channels}"`)으로 미리 합쳐서 넘기지 않는다. `"{이름}", 값` 형태를 지켜야 나중에 로그를 구조적으로 검색/필터링할 수 있다.
+- 로그 레벨은 `LogTrace < LogDebug < LogInformation < LogWarning < LogError < LogCritical` 순이다. `appsettings.Development.json`의 `Logging:LogLevel:Default`가 `Information`이라 `LogInformation`부터는 바로 보이고, `LogDebug`/`LogTrace`는 설정을 더 낮춰야 보인다.
+- 예외를 같이 남기고 싶으면 `logger.LogError(ex, "메시지")`처럼 예외 객체를 첫 인자로 넘긴다(스택트레이스까지 같이 찍힘).
+
+**DB에는 기록되지 않는다.** `ILogger`는 기본적으로 콘솔에만 출력되고, 터미널을 닫으면 사라진다. DB `EventLogs` 테이블에 실제로 남기려면 [Modules/Logging](../Modules/Logging/README.md)의 `EventLogger.LogAsync(db, category, message, username)`를 명시적으로 호출해야 한다 — 이 둘은 완전히 별개의 경로다(현재 `EventLogger`는 로그인/로그아웃 두 곳에서만 호출됨). 폴링처럼 매 사이클 도는 코드에 `EventLogger`를 함부로 넣으면 DB에 로그가 급격히 쌓이니, 일회성 디버깅에는 `ILogger`만 쓰는 게 맞다.

@@ -17,4 +17,5 @@ public record CompressorFlatDto(
     string CommunicationStatus,
     string AlarmStatus);
 
-public record ChannelValueDto(string ChannelNo, decimal Value, DateTimeOffset MeasuredAt);
+// Value는 TLC 원시값(raw int16) 그대로다 — 소수점 변환은 프론트가 담당한다.
+public record ChannelValueDto(string ChannelNo, short Value, DateTimeOffset MeasuredAt);
