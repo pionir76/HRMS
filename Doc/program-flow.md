@@ -185,7 +185,8 @@ AuthController
 응답: { token, username, role, canEmergencyStop }
 ```
 
-- `User`(Modules/Auth/Models): `Username`, `PasswordHash`, `Role`(조회/운영/관리자), `CanEmergencyStop`(비상정지는 역할과 별개의 독립 권한), `IsActive`.
+- `User`(Modules/Auth/Models): `Username`, `PasswordHash`, `Role`(시스템관리자/안전관리총괄자/안전관리책임자/안전관리원/일반관리자 — `시스템관리자`만 전체 권한, 나머지 4개는 현재 조회만 가능하고 권한 차이 없음), `CanEmergencyStop`(비상정지는 역할과 별개의 독립 권한), `IsActive`, 그리고 안전관리 담당자 인적사항(`FullName`, `Position`, `LegalTrainingDate`, `NextTrainingDate`, `Department`, `BackupPersonName`).
+- `UserEquipment`: 사용자-담당장비 다대다. `CompressorChannelSetting`과 같은 이유로 별도 Id 없이 `(UserId, EquipmentId)` 자체를 기본키로 쓴다.
 - 비밀번호는 `Microsoft.AspNetCore.Identity`의 `PasswordHasher<T>` 클래스만 가져와 씀 (Identity 전체 프레임워크의 UserManager/SignInManager 등은 안 씀).
 - 로그인 이후 요청은 `Authorization: Bearer {token}` 헤더로 인증한다. 기존 조회 컨트롤러 4개는 전부 `[Authorize]`가 붙어 토큰 없이는 호출 불가.
 - `POST /api/auth/logout`은 서버가 토큰을 무효화하지는 않는다(JWT는 상태가 없어서 블랙리스트 없이는 그럴 수 없음) — 프론트가 토큰을 버리면 그걸로 로그아웃이고, 이 엔드포인트는 EventLog에 "로그아웃" 기록만 남긴다.

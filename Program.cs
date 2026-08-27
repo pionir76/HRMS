@@ -93,7 +93,8 @@ using (var scope = app.Services.CreateScope())
         var admin = new User
         {
             Username = "admin",
-            Role = UserRole.관리자,
+            FullName = "시스템관리자",
+            Role = UserRole.시스템관리자,
             CanEmergencyStop = true,
             IsActive = true,
             CreatedAt = DateTimeOffset.UtcNow

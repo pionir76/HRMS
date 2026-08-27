@@ -38,12 +38,12 @@
 
 **응답 예시 (200)**
 ```json
-{ "token": "eyJhbGciOi...", "username": "admin", "role": "관리자", "canEmergencyStop": true }
+{ "token": "eyJhbGciOi...", "username": "admin", "role": "시스템관리자", "canEmergencyStop": true }
 ```
 
 이후 요청에는 `Authorization: Bearer {token}` 헤더를 붙인다.
 
-`role`은 `조회` / `운영` / `관리자` 중 하나. `canEmergencyStop`은 비상정지 권한을 별도로 가진 계정인지 여부(관리자 권한과는 별개 플래그).
+`role`은 `시스템관리자` / `안전관리총괄자` / `안전관리책임자` / `안전관리원` / `일반관리자` 중 하나. `시스템관리자`만 전체 권한을 갖고 나머지 4개는 현재 전부 조회만 가능하다(역할 간 권한 차이 없음 — 추후 보고서 결재 기능에서 차이가 생길 예정). `canEmergencyStop`은 비상정지 권한을 별도로 가진 계정인지 여부(역할과는 별개 플래그).
 
 **오류**: 아이디/비밀번호가 틀리거나 비활성화된 계정이면 `401 Unauthorized` (본문 없음).
 

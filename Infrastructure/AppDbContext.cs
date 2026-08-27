@@ -24,6 +24,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<CompressorSensorCurrent> CompressorSensorCurrents => Set<CompressorSensorCurrent>();
     public DbSet<CompressorMeasurement> CompressorMeasurements => Set<CompressorMeasurement>();
     public DbSet<User> Users => Set<User>();
+    public DbSet<UserEquipment> UserEquipments => Set<UserEquipment>();
     public DbSet<EventLog> EventLogs => Set<EventLog>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -79,5 +80,15 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         modelBuilder.Entity<User>()
             .HasIndex(u => u.Username)
             .IsUnique();
+
+        //--------------------------------------------------------------------------------//
+        // 사용자-담당장비 다대다 관계. 별도 Id 없이 (UserId, EquipmentId) 자체를 기본키로 쓴다.
+        //--------------------------------------------------------------------------------//
+        modelBuilder.Entity<UserEquipment>(b =>
+        {
+            b.HasKey(x => new { x.UserId, x.EquipmentId });
+            b.HasOne<User>().WithMany().HasForeignKey(x => x.UserId);
+            b.HasOne<Equipment>().WithMany().HasForeignKey(x => x.EquipmentId);
+        });
     }
 }
