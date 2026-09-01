@@ -1,4 +1,5 @@
 using HRMS.Infrastructure;
+using HRMS.Modules.Alarm.Models;
 using HRMS.Modules.Equipment.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -6,8 +7,10 @@ using Microsoft.EntityFrameworkCore;
 
 namespace HRMS.Modules.Equipment.Controllers;
 
+//---------------------------------------------------------------------------//
 // 장비 조회 API. 서비스/리포지토리 계층 없이 DbContext를 직접 써서 단순하게 유지한다
 // (이 규모의 시스템에서는 매 요청 DB 직접 조회로 충분 — overview.md 4.4 참고).
+//---------------------------------------------------------------------------//
 [ApiController]
 [Route("api/equipments")]
 [Authorize]
@@ -36,13 +39,14 @@ public class EquipmentsController(AppDbContext db) : ControllerBase
         if (await db.Equipments.FindAsync(id) is null)
             return NotFound();
 
-        var entities = await db.Compressors.Where(c => c.EquipmentId == id).ToListAsync();
+        var entities = await db.Compressors.Where(c => c.EquipmentId == id).OrderBy(c => c.SequenceNo).ToListAsync();
         return Ok(entities.Select(c => new CompressorDto(
-            c.Id, c.IpAddress, c.MacAddress, c.CommunicationStatus.ToString(), c.AlarmStatus.ToString())).ToList());
+            c.Id, c.SequenceNo, c.IpAddress, c.MacAddress, c.CommunicationStatus.ToString(), c.AlarmStatus != AlarmStatus.정상)).ToList());
     }
 
     // enum -> 문자열 변환은 항상 엔티티를 메모리로 가져온 뒤(ToListAsync 등) 수행한다.
     // EF Core가 enum.ToString()을 SQL로 안정적으로 번역하지 못할 수 있어서다.
     private static EquipmentDto ToDto(Models.Equipment e) =>
-        new(e.Id, e.Region, e.BuildingName, e.Name, e.Status.ToString());
+        new(e.Id, e.Region, e.BuildingName, e.Name, e.Status.ToString(),
+            e.IsRunning, e.CommunicationStatus.ToString(), e.AlarmStatus != AlarmStatus.정상);
 }

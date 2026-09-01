@@ -2,6 +2,8 @@ using System.Text;
 using HRMS.Infrastructure;
 using HRMS.Modules.Auth.Models;
 using HRMS.Modules.Auth.Services;
+using HRMS.Modules.Logging;
+using HRMS.Modules.Logging.Models;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -95,7 +97,6 @@ using (var scope = app.Services.CreateScope())
             Username = "admin",
             FullName = "시스템관리자",
             Role = UserRole.시스템관리자,
-            CanEmergencyStop = true,
             IsActive = true,
             CreatedAt = DateTimeOffset.UtcNow
         };
@@ -103,6 +104,19 @@ using (var scope = app.Services.CreateScope())
         db.Users.Add(admin);
         await db.SaveChangesAsync();
     }
+
+    //--------------------------------------------------------------------------------//
+    // 시스템 시작 이벤트 기록(System 카테고리). 화면 없이 백그라운드로 도는 Windows Service라,
+    // 나중에 "그때 서버가 정상적으로 떴는지"를 확인할 유일한 흔적이다. 여기까지 온 것 자체가
+    // DB 연결이 정상이라는 뜻이라 별도 "DB 연결 확인" 로그는 만들지 않는다.
+    // TestMode 여부를 꼭 남기는 이유: 운영에 실수로 켜진 채 배포되면 이 로그로 바로 알아챌 수 있다.
+    //--------------------------------------------------------------------------------//
+    bool testMode = app.Configuration.GetValue("Communication:TestMode", false);
+    int equipmentCount = await db.Equipments.CountAsync();
+    int compressorCount = await db.Compressors.CountAsync();
+    
+    await EventLogger.LogAsync(db, EventLogCategory.System,
+        $"HRMS 백엔드 시작 (TestMode={testMode}, 장비 {equipmentCount}대, 압축기 {compressorCount}대)");
 }
 
 // Configure the HTTP request pipeline.

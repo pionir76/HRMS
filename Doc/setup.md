@@ -181,7 +181,7 @@ Remove-Item Env:\PGPASSWORD
 
 ## 9. 경보/운전 판정 기본값 적용
 
-`CompressorChannelSetting`의 경보 상/하한과 `Equipment`의 운전전류 임계값은 시드 직후엔 비어 있어서 판정이 되지 않는다. `Infrastructure/Seed/apply_alarm_defaults.sql`을 실행하면 전체 채널에 상한 1000·하한 0·표시소수점 1자리를 채우고, 전체 장비에 운전전류 임계값 10을 채운다. **8단계가 먼저 끝나 있어야 한다.**
+`CompressorChannelSetting`의 경보 상/하한과 `Equipment`의 운전전류 임계값은 시드 직후엔 비어 있어서 판정이 되지 않는다. `Infrastructure/Seed/apply_alarm_defaults.sql`을 실행하면 전체 채널에 상한 1000·하한 0·표시소수점 1자리·경보 발생/해제 지연 각 30초를 채우고, 전체 장비에 운전전류 임계값 10을 채운다. **8단계가 먼저 끝나 있어야 한다.**
 
 ```powershell
 $env:PGPASSWORD = "1234"
@@ -192,7 +192,21 @@ Remove-Item Env:\PGPASSWORD
 
 `UPDATE 1708`, `UPDATE 105`가 출력되면 정상. 실제 값이 정해지면 이 기본값은 웹 화면(또는 직접 SQL)에서 장비/채널별로 다시 조정하면 된다.
 
-## 10. 로그인 인증 설정 (JWT 서명 키)
+## 10. 채널 한글명/단위, 압축기 순번 적용
+
+`CompressorChannelSetting.ChannelName`/`Unit`(채널 한글 명칭·단위)과 `Compressor.SequenceNo`(소속 장비 내 압축기 순번)는 경보 메시지 생성 등에 쓰일 예정이라, 별도 시드 스크립트로 채운다. **8단계가 먼저 끝나 있어야 한다.**
+
+```powershell
+$env:PGPASSWORD = "1234"
+$psql = "C:\Program Files\PostgreSQL\17\bin\psql.exe"
+& $psql -h localhost -p 5432 -U hrms_app -d hrms -f "Infrastructure\Seed\apply_channel_names.sql"
+& $psql -h localhost -p 5432 -U hrms_app -d hrms -f "Infrastructure\Seed\apply_compressor_sequence.sql"
+Remove-Item Env:\PGPASSWORD
+```
+
+`UPDATE 244`가 채널별로 7번, 압축기 순번 적용에서 1번 출력되면 정상.
+
+## 11. 로그인 인증 설정 (JWT 서명 키)
 
 로그인 토큰(JWT) 서명에 쓰는 비밀 키를 `appsettings.json`(운영) 또는 `appsettings.Development.json`(개발)에 넣어야 한다. 개발 환경에는 이미 키가 들어있지만, **운영 서버에는 별도로 새 키를 생성해서 넣어야 한다** (개발용 키를 그대로 쓰면 안 됨).
 
@@ -219,7 +233,7 @@ Remove-Item Env:\PGPASSWORD
 
 **최초 로그인 후 반드시 비밀번호를 바꿀 것** (현재는 비밀번호 변경 API가 없으므로, DB에서 직접 새 해시 값으로 갱신하거나 추후 추가될 사용자 관리 기능을 사용).
 
-## 11. 테스트 모드 (실제 장비 네트워크 없이 전체 흐름 확인)
+## 12. 테스트 모드 (실제 장비 네트워크 없이 전체 흐름 확인)
 
 `appsettings.Development.json`의 `"Communication": { "TestMode": true }`가 켜져 있으면 실제 TCP 통신 없이 전 압축기가 정상 통신하는 것으로 가정하고 랜덤값을 채운다. 통신상태·경보판정·장비상태 집계까지 전부 실제로 동작하는 걸 확인할 수 있다 (자세한 동작은 [program-flow.md](program-flow.md) 6장 참고).
 

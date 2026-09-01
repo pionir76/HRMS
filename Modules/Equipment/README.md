@@ -9,6 +9,6 @@
 
 ## 내부 구성 (예정)
 
-- `Controllers/` — 장비/압축기/채널 REST API
+- `Controllers/` — 장비/압축기/채널 REST API. 조회(GET)만 구현됨(등록/수정은 아직 없음). `SummaryController`(`GET /api/summary`)는 실시간 현황 화면용 전체 집계 API
 - `Models/` — 엔티티, DTO
 - `Services/` — 등록/조회/수정 로직

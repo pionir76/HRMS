@@ -42,8 +42,9 @@
 3. `AddHostedService<CompressorPollingService>()` — 앱이 뜨자마자 폴링 루프가 백그라운드에서 자동 시작됨 (별도로 실행시킬 필요 없음)
 4. JWT 인증 등록(`AddAuthentication().AddJwtBearer(...)`) — 서명 키/발급자는 `Jwt:Key`, `Jwt:Issuer` 설정값 (자세한 내용은 8장 참고)
 5. `Users` 테이블이 비어있으면 관리자 계정(`admin`/`admin1234`)을 자동 생성 (최초 1회만 동작)
-6. `UseWindowsService()` — 운영 환경에서는 Windows Service로, 개발 중에는 콘솔 앱으로 동일하게 동작
-7. `UseAuthentication()` → `UseAuthorization()` → `MapControllers()` — 아래 컨트롤러들의 라우팅 활성화
+6. `EventLog`(System 카테고리)에 시작 이벤트 기록 — 예: `"HRMS 백엔드 시작 (TestMode=True, 장비 105대, 압축기 244대)"`. 화면 없이 도는 Windows Service라 "그때 정상적으로 떴는지"를 나중에 확인할 유일한 흔적이며, 여기까지 도달했다는 것 자체가 DB 연결이 정상이라는 뜻이라 별도 "DB 연결 확인" 로그는 두지 않는다. `TestMode` 값을 같이 남겨서, 운영에 실수로 켜진 채 배포됐는지도 바로 확인할 수 있다.
+7. `UseWindowsService()` — 운영 환경에서는 Windows Service로, 개발 중에는 콘솔 앱으로 동일하게 동작
+8. `UseAuthentication()` → `UseAuthorization()` → `MapControllers()` — 아래 컨트롤러들의 라우팅 활성화
 
 ## 3. 압축기 폴링 루프 (Modules/Communication/CompressorPollingService.cs)
 
@@ -56,7 +57,7 @@
    - **테스트 모드**(`Communication:TestMode = true`): 실제 통신 없이 항상 성공 처리하고, CH01~07에 `-200~1200`(raw int16 기준) 범위의 랜덤값을 채운다. 기본 경보 상/하한(raw 0~1000)을 자연스럽게 넘나들도록 범위를 넉넉하게 잡아서, 경보 상태 전이를 실제로 관찰할 수 있게 했다.
    - **실제 모드**: `PcLinkClient.ReadChannelsAsync()`를 `Task.WhenAll`로 동시 호출. 압축기 하나가 타임아웃 나도 `try/catch`로 감싸져 있어서 다른 압축기 호출에 영향을 주지 않는다.
    - 이 단계에서는 DB에 아무것도 쓰지 않는다(동시 실행 중 `DbContext`를 건드리면 스레드 안전성 문제가 생기므로, 결과만 메모리에 모아둔다).
-3. **통신상태 반영** — 성공하면 `연결됨`, 실패인데 직전이 `연결됨`이었으면 `재접속중`, 그 외 실패는 `끊김`.
+3. **통신상태 반영** — 성공하면 `연결됨`, 실패인데 직전이 `연결됨`이었으면 `재접속중`, 그 외 실패는 `끊김`. 같은 시점에 **통신 장애 경보**(`HasCommunicationAlarm`)도 갱신한다 — 성공하면 즉시 `false`로 초기화, 실패하면 처음 끊긴 시각(`DisconnectedSince`)만 기록해뒀다가 `CommunicationFailureAlarmDelay`(30초 고정, 통신 모듈 공통값) 이상 계속 끊긴 상태일 때만 `true`로 켠다. 통신이 불안정해서 짧게 끊겼다 붙었다 하는 것까지 매번 경보로 잡지 않기 위한 디바운스이며, 채널값 기준 `AlarmStatus`와는 완전히 별개다(사용자 결정).
 4. **현재값 + 채널 경보 판정** (`UpdateCurrentValuesAsync`) — 성공한 압축기만 대상으로:
    - CH01~07 값을 `CompressorSensorCurrent`에 UPSERT (압축기당 최대 7행 고정, 계속 늘어나지 않음)
    - 값을 갱신한 직후 `AlarmEvaluator.Evaluate()`로 그 채널의 경보 상태까지 같이 판정
@@ -101,12 +102,13 @@ Equipment (장비)
   IsRunning, AlarmStatus, CommunicationStatus  ← 압축기 집계 결과 (관리자가 설정하는 Status와는 별개)
    │ 1
    │ N
-Compressor (압축기) ── IpAddress, MacAddress, CommunicationStatus, AlarmStatus
+Compressor (압축기) ── SequenceNo(장비 내 순번), IpAddress, MacAddress, CommunicationStatus, AlarmStatus
    │ 1                │ 1
    │ 7                │ 7
 CompressorChannelSetting        CompressorSensorCurrent
-(사용여부, 경보 상/하한,          (채널별 현재값 — 폴링마다 덮어씀, 누적 안 됨)
- 지연시간, 표시 소수점)           + AlarmStatus, PendingSince (경보 판정용 상태)
+(채널명/단위, 사용여부,           (채널별 현재값 — 폴링마다 덮어씀, 누적 안 됨)
+ 경보 상/하한, 지연시간,          + AlarmStatus, PendingSince (경보 판정용 상태)
+ 표시 소수점)
                                   │
                                   │ 1분마다 스냅샷
                                   ▼
@@ -119,7 +121,8 @@ CompressorChannelSetting        CompressorSensorCurrent
 - `CompressorChannelSetting`, `CompressorSensorCurrent`는 압축기 1대당 정확히 7행(CH01~07)이 고정이라 `(CompressorId, ChannelNo)` 복합키를 쓴다 — 의미 없는 별도 일련번호를 만들지 않기 위함.
 - `CompressorMeasurement`는 압축기 1대당 그 분(`MeasuredAt`)에 정확히 1행이라 `(CompressorId, MeasuredAt)` 복합키. 채널은 행이 아니라 컬럼(Ch01~07)으로 펼쳐서 저장한다(하루 데이터량을 7분의 1로 줄이기 위함).
 - `CompressorSensorCurrent.Value`, `CompressorMeasurement.Ch01~07`은 전부 `short`(raw int16) 타입이다. TLC가 보내는 원시값을 가공 없이 그대로 저장하며, 표시용 소수점 자리수(`CompressorChannelSetting.DecimalPlaces`)는 나중에 프론트가 값을 화면에 표시할 때 쓰라고 남겨둔 값일 뿐, 백엔드 저장/계산에는 관여하지 않는다.
-- `Compressor`는 의도적으로 필드가 적다. IP/포트/타임아웃 등 상당수는 시스템 공통값이거나 아직 필요하지 않아 뺐다.
+- `Compressor`는 의도적으로 필드가 적다. IP/포트/타임아웃 등 상당수는 시스템 공통값이거나 아직 필요하지 않아 뺐다. `SequenceNo`(장비 내 순번)는 예외로 추가됨 — 향후 경보 메시지에 "압축기 1번"처럼 표시하기 위한 용도(`Infrastructure/Seed/apply_compressor_sequence.sql`로 `ROW_NUMBER() OVER (PARTITION BY EquipmentId ORDER BY Id)` 계산해서 채움).
+- `CompressorChannelSetting.ChannelName`/`Unit`(채널 한글명/단위)은 채널 번호로 결정되는 시스템 공통값이라 압축기마다 다르지 않지만, 경보 메시지 생성 시 한 행 조회만으로 필요한 정보를 다 얻도록 일부러 같이 저장해뒀다(`apply_channel_names.sql`로 채움).
 - `Equipment.IsRunning`/`AlarmStatus`/`CommunicationStatus`는 관리자가 설정하는 `Equipment.Status`(운영/미운영 등)와 완전히 다른 개념이다 — 압축기 데이터로부터 매 폴링 사이클 자동 계산되는 실시간 파생값이다. `IsRunning`은 "운전/정지" 둘뿐이라 처음부터 enum이 아니라 `bool`이다.
 - `AlarmStatus`(Modules/Alarm/Models)는 5가지 상태만 있다: 정상/경보발생대기/경보발생/정상복귀대기/경보비활성화. "경보확인"과 "경보해제"는 상태로 존재하지 않는다.
 - `Equipment`는 `(BuildingName, Name)` 조합에 유니크 인덱스가 걸려있다 — 같은 시설동에 이름이 완전히 같은 장비 두 개는 등록할 수 없다(시도하면 DB가 에러로 거부). `compressor_seed.sql`이 이 텍스트 조합으로 압축기를 소속 장비에 연결하기 때문에(Id가 아니라 이름으로 매칭), 이 유니크 제약이 깨지면 그 매칭이 압축기 하나를 두 장비에 중복 연결하는 식으로 조용히 틀어질 수 있다. 실제 자산 목록도 동명 설비는 "1호기/2호기"처럼 구분해서 이 제약을 이미 만족한다(overview.md 4.1 참고).
@@ -148,14 +151,17 @@ CompressorChannelSetting        CompressorSensorCurrent
 | `GET /api/equipments/{id}/compressors` | 해당 장비의 압축기 목록(통신/경보 상태 포함) |
 | `GET /api/compressors` | 압축기 전체 목록(소속 장비명 조인 포함) |
 | `GET /api/compressors/{id}/channels` | 해당 압축기의 CH01~07 현재값 |
+| `GET /api/compressors/{id}/channel-settings` | 해당 압축기의 CH01~07 채널 설정(채널명/단위/경보 상하한/표시 소수점 자리수) |
 | `GET /api/compressors/{id}/trend?date=yyyy-MM-dd` | 해당 압축기의 하루치 트렌드(1분 단위, 채널 전체 + 상태 스냅샷). `date` 생략 시 오늘(한국 시간) |
 | `GET /api/equipments/{id}/utilization?from=yyyy-MM-dd&to=yyyy-MM-dd` | 지정 기간의 장비 가동률(%). `to` 생략 시 `from` 하루, 둘 다 생략 시 오늘 |
+| `GET /api/summary` | 전체/운전중 장비 수, 전체/통신불량 압축기 수 집계 (실시간 현황 상단 카운트용) |
+| `GET /api/events?since=&take=` | 이벤트 로그 조회 (실시간 현황 이벤트 피드용). `since` 없으면 최신순, 있으면 오래된순 |
 
 enum(운영상태, 통신상태, 경보상태, 채널번호)은 전부 `"운영"`, `"연결됨"`, `"CH01"`처럼 사람이 읽을 수 있는 문자열로 응답에 나간다. 이 변환은 항상 DB에서 엔티티를 먼저 가져온 뒤(`ToListAsync()` 등) 메모리에서 처리한다 — EF Core가 SQL 안에서 enum 문자열 변환을 안정적으로 처리하지 못할 수 있어서다.
 
 채널값(`/channels`의 `value`, `/trend`의 `ch01`~`ch07`)은 반대로 **가공하지 않고** TLC 원시값(raw int16) 그대로 내려간다 — 소수점 변환은 백엔드 어디에서도 하지 않고 프론트가 담당한다(사용자 결정). 경보 상/하한(`CompressorChannelSetting.LowerLimit/UpperLimit`)과 운전전류 임계값(`Equipment.RunningCurrentThreshold`)도 같은 raw 스케일로 저장되어 있어서, `AlarmEvaluator`/`EquipmentStatusAggregator`의 비교 로직도 raw 값끼리 순수 정수 비교만 한다.
 
-> 참고: 장비의 새 필드(`IsRunning` 등)는 아직 `EquipmentDto`에 노출되어 있지 않다. 필요해지면 DTO에 추가하면 된다.
+> 참고: `EquipmentDto`에 `IsRunning`/`CommunicationStatus`/`AlarmStatus`가 전부 노출되어 있다(프론트 실시간 현황 화면 요구사항).
 
 ### 트렌드 조회(`/trend`)의 날짜 처리
 
@@ -182,16 +188,26 @@ AuthController
   3. 성공 시 EventLog(UserAccess)에 "로그인" 기록
   4. JwtTokenService가 서명된 JWT 발급 (12시간 만료, refresh 없음)
   ▼
-응답: { token, username, role, canEmergencyStop }
+응답: { token, username, role }
 ```
 
-- `User`(Modules/Auth/Models): `Username`, `PasswordHash`, `Role`(시스템관리자/안전관리총괄자/안전관리책임자/안전관리원/일반관리자 — `시스템관리자`만 전체 권한, 나머지 4개는 현재 조회만 가능하고 권한 차이 없음), `CanEmergencyStop`(비상정지는 역할과 별개의 독립 권한), `IsActive`, 그리고 안전관리 담당자 인적사항(`FullName`, `Position`, `LegalTrainingDate`, `NextTrainingDate`, `Department`, `BackupPersonName`).
+- `User`(Modules/Auth/Models): `Username`, `PasswordHash`, `Role`(시스템관리자/안전관리총괄자/안전관리책임자/안전관리원/일반관리자 — `시스템관리자`만 전체 권한, 나머지 4개는 현재 조회만 가능하고 권한 차이 없음), `IsActive`, 그리고 안전관리 담당자 인적사항(`FullName`, `Position`, `LegalTrainingDate`, `NextTrainingDate`, `Department`, `BackupPersonName`). 비상정지 권한은 사용자별 플래그가 아니라 나중에 역할 기준으로 일괄 적용할 예정이라(예: "안전관리책임자만 가능") `User`에 별도 필드를 두지 않는다.
 - `UserEquipment`: 사용자-담당장비 다대다. `CompressorChannelSetting`과 같은 이유로 별도 Id 없이 `(UserId, EquipmentId)` 자체를 기본키로 쓴다.
 - 비밀번호는 `Microsoft.AspNetCore.Identity`의 `PasswordHasher<T>` 클래스만 가져와 씀 (Identity 전체 프레임워크의 UserManager/SignInManager 등은 안 씀).
 - 로그인 이후 요청은 `Authorization: Bearer {token}` 헤더로 인증한다. 기존 조회 컨트롤러 4개는 전부 `[Authorize]`가 붙어 토큰 없이는 호출 불가.
 - `POST /api/auth/logout`은 서버가 토큰을 무효화하지는 않는다(JWT는 상태가 없어서 블랙리스트 없이는 그럴 수 없음) — 프론트가 토큰을 버리면 그걸로 로그아웃이고, 이 엔드포인트는 EventLog에 "로그아웃" 기록만 남긴다.
-- `EventLog`(Modules/Logging): 카테고리별(`UserAccess`/`EmergencyStop`/`Communication`/`Alarm`/`System`) 단일 테이블. 현재는 `UserAccess`(로그인/로그아웃)만 실제로 기록되고 있고, 나머지는 각 기능을 만들 때 `EventLogger.LogAsync(...)` 한 줄만 추가하면 된다.
-- 최초 관리자 계정(`admin`/`admin1234`)은 `Program.cs`에서 `Users` 테이블이 비어있을 때 자동 생성된다 (setup.md 10장 참고). 계정 잠금, 비밀번호 재설정, 사용자 관리 API는 20명 규모에 비해 과하다고 판단해 구현하지 않았다.
+- `EventLog`(Modules/Logging): 카테고리별(`UserAccess`/`EmergencyStop`/`Communication`/`Alarm`/`System`) 단일 테이블. `EquipmentId`/`CompressorId`/`ChannelNo`(전부 nullable) 참조 필드가 있어서, `Message`(사람이 읽는 완성 문장)를 파싱하지 않고도 필터링·화면 이동이 가능하다. `UserAccess`(로그인/로그아웃)에 이어 `Alarm`/`Communication`도 구현되었다 — 자세한 내용은 아래 "경보/통신장애 이벤트 기록" 참고. 나머지(`EmergencyStop`/`System`)는 해당 기능을 만들 때 `EventLogger.LogAsync(...)` 호출을 추가하면 된다.
+- 최초 관리자 계정(`admin`/`admin1234`)은 `Program.cs`에서 `Users` 테이블이 비어있을 때 자동 생성된다 (setup.md 11장 참고). 계정 잠금, 비밀번호 재설정, 사용자 관리 API는 20명 규모에 비해 과하다고 판단해 구현하지 않았다.
+
+### 경보/통신장애 이벤트 기록 (Modules/Communication/CompressorPollingService.cs)
+
+폴링마다가 아니라 **상태가 실제로 전이되는 순간에만** `EventLogger.LogAsync`를 호출한다 — 그렇지 않으면 244대 × 7채널을 3초마다 도는 구조상 이벤트가 감당 안 될 정도로 쌓인다.
+
+- **경보**(`LogAlarmTransitionIfNeededAsync`): `AlarmEvaluator.Evaluate()` 호출 전후로 `AlarmStatus`를 비교해서, "발생"(경보발생대기→경보발생)과 "해제"(정상복귀대기→정상) 확정 순간만 기록한다. 중간 대기 상태는 기록하지 않는다.
+- **통신장애**(`LogCommunicationAlarmAsync`): `HasCommunicationAlarm`이 `false`→`true`로 바뀌는 순간만 기록한다. 통신 상태(연결됨/끊김/재접속중) 자체의 전이나, 통신장애 경보의 복구는 기록하지 않는다(사용자 결정 — 너무 잦음).
+- 메시지는 `"{지역} {시설동}의 {장비명}의 압축기 {SequenceNo}번 {ChannelName}값이 범위를 벗어났습니다"` 형태로 서버가 조립한다. 필요한 장비/압축기 정보(`GetCompressorContextAsync`)는 전이가 실제로 일어난 드문 순간에만 조회한다 — 매 폴링 사이클마다 미리 로드해두지 않는다.
+- `AlarmDelaySeconds`/`AlarmClearDelaySeconds` 둘 다 기본값 30초(`CompressorChannelSetting.cs` 속성 기본값 + `apply_alarm_defaults.sql`)가 적용되어 있다. 채널값이 상/하한을 벗어나도(또는 정상 범위로 돌아와도) 30초 동안 그 상태가 **끊김 없이 계속 유지**되어야 확정되고, 중간에 단 한 번이라도 반대 상태로 바뀌면 대기가 취소되고 처음부터 다시 시작한다(`AlarmEvaluator`).
+- **테스트 모드 관련 참고**: `GenerateTestValues()`는 매 사이클(3초)마다 완전히 독립적인 새 랜덤값을 뽑기 때문에, 30초(10사이클) 연속으로 같은 방향(상한초과/하한미만/정상범위)을 유지할 확률이 매우 낮다 — 실제로 초기화 후 40초 넘게 관찰해도 이벤트가 하나도 안 쌓이는 걸 확인했다. 실제 센서값은 값이 연속적으로 변하므로 이런 극단적인 경우가 없지만, **테스트 모드로 지연 기반 경보 확정을 눈으로 확인하려면 지연시간을 일시적으로 낮추거나(예: 3~6초) 별도 확인 방법이 필요**하다.
 
 ## 9. 아직 없는 것
 

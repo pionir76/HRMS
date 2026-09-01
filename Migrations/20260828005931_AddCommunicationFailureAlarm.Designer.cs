@@ -3,6 +3,7 @@ using System;
 using HRMS.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace HRMS.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260828005931_AddCommunicationFailureAlarm")]
+    partial class AddCommunicationFailureAlarm
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -312,17 +315,8 @@ namespace HRMS.Migrations
                     b.Property<int>("Category")
                         .HasColumnType("integer");
 
-                    b.Property<int?>("ChannelNo")
-                        .HasColumnType("integer");
-
-                    b.Property<int?>("CompressorId")
-                        .HasColumnType("integer");
-
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<int?>("EquipmentId")
-                        .HasColumnType("integer");
 
                     b.Property<string>("Message")
                         .IsRequired()

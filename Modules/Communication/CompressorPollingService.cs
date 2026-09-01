@@ -1,9 +1,12 @@
 using HRMS.Infrastructure;
 using HRMS.Modules.Alarm;
+using HRMS.Modules.Alarm.Models;
 using HRMS.Modules.Communication.Models;
 using HRMS.Modules.Communication.Protocol;
 using HRMS.Modules.Equipment;
 using HRMS.Modules.Equipment.Models;
+using HRMS.Modules.Logging;
+using HRMS.Modules.Logging.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -26,9 +29,18 @@ public class CompressorPollingService(
     // overview.md 8.1의 시스템 공통 Polling Interval과 동일하게 3초로 고정한다. 
     // (설정화면에서 바꾸는 기능은 아직 없다.)
     //--------------------------------------------------------------------------------//
-    private const int PollIntervalMs = 3000; 
+    private const int PollIntervalMs = 3000;
 
+    //--------------------------------------------------------------------------------//
+    // 통신 장애가 이 시간 이상 계속 지속되어야 HasCommunicationAlarm을 켠다 — 압축기별 설정이 아니라
+    // 통신 모듈 공통값 하나로 관리한다(사용자 결정). 짧게 끊겼다 붙는 불안정한 연결까지 매번 경보로
+    // 잡으면 이벤트가 너무 잦아지는 걸 막기 위한 디바운스 목적이다.
+    //--------------------------------------------------------------------------------//
+    private static readonly TimeSpan CommunicationFailureAlarmDelay = TimeSpan.FromSeconds(30);
+
+    //--------------------------------------------------------------------------------//
     // 이 상태의 장비에 속한 압축기는 수집 대상에서 제외한다 (overview.md 4.1).
+    //--------------------------------------------------------------------------------//
     private static readonly EquipmentStatus[] ExcludedEquipmentStatuses =
         [EquipmentStatus.미운영, EquipmentStatus.철거, EquipmentStatus.사용중지];
 
@@ -117,24 +129,48 @@ public class CompressorPollingService(
             return (c.Id, PreviousStatus: c.CommunicationStatus, Ok: ok, Values: values);
         }));
 
-        //--------------------------------------------------------------------------------//    
+        //--------------------------------------------------------------------------------//
         // 여기서부터는 단일 스레드로 DbContext를 순차 갱신하므로 동시성 문제 없음.
         // results는 압축기별로 (Id, 이전 통신상태, 통신성공여부, 읽어온 채널값) 튜플 배열
         // 비동기 통신으로 전체 압축기에서 읽어온 결과를 모은 뒤, 통신상태·채널값·경보상태를 갱신하고 장비 단위로 집계한다.
-        //--------------------------------------------------------------------------------//    
+        //--------------------------------------------------------------------------------//
+        var now = DateTimeOffset.UtcNow;
         foreach (var (id, previousStatus, ok, _) in results)
         {
             var compressor = compressors.First(c => c.Id == id);
 
-            //--------------------------------------------------------------------------------//    
+            //--------------------------------------------------------------------------------//
             // 성공하면 무조건 연결됨. 실패는 직전이 연결됨이었으면(막 끊긴 상태) 재접속중,
             // 그 외(원래도 안 됐던 경우)는 끊김으로 본다.
-            //--------------------------------------------------------------------------------//    
+            //--------------------------------------------------------------------------------//
             compressor.CommunicationStatus = ok
                 ? CommunicationStatus.연결됨
                 : previousStatus == CommunicationStatus.연결됨
                     ? CommunicationStatus.재접속중
                     : CommunicationStatus.끊김;
+
+            //--------------------------------------------------------------------------------//
+            // 통신 장애 경보(AlarmStatus와 별도). 성공하면 즉시 해제하고, 실패하면 처음 끊긴
+            // 시각만 기록해뒀다가 CommunicationFailureAlarmDelay 이상 계속 끊겨있을 때만 켠다.
+            //--------------------------------------------------------------------------------//
+            if (ok)
+            {
+                compressor.DisconnectedSince = null;
+                compressor.HasCommunicationAlarm = false;
+            }
+            else
+            {
+                compressor.DisconnectedSince ??= now;
+                bool wasAlarm = compressor.HasCommunicationAlarm;
+                compressor.HasCommunicationAlarm = now - compressor.DisconnectedSince >= CommunicationFailureAlarmDelay;
+
+                //--------------------------------------------------------------------------------//
+                // 통신 장애 경보는 켜지는 순간만 기록한다(사용자 결정) — 복구는 기록하지 않고,
+                // 연결됨/끊김/재접속중 상태 전이 자체도 너무 잦아서 기록하지 않는다.
+                //--------------------------------------------------------------------------------//
+                if (!wasAlarm && compressor.HasCommunicationAlarm)
+                    await LogCommunicationAlarmAsync(db, compressor.Id);
+            }
         }
 
         await UpdateCurrentValuesAsync(db, results.Where(r => r.Ok), stoppingToken);
@@ -210,8 +246,58 @@ public class CompressorPollingService(
                 current.MeasuredAt = now;
 
                 if (settings.TryGetValue((r.Id, channelNo), out var setting))
+                {
+                    var previousAlarmStatus = current.AlarmStatus;
                     AlarmEvaluator.Evaluate(current, setting, now);
+                    await LogAlarmTransitionIfNeededAsync(db, r.Id, channelNo, setting, previousAlarmStatus, current.AlarmStatus);
+                }
             }
         }
     }
+
+    //--------------------------------------------------------------------------------//
+    // 경보 "발생"(경보발생대기 → 경보발생)과 "해제"(정상복귀대기 → 정상) 확정 순간만 기록한다
+    // (사용자 결정). 중간 대기 상태(경보발생대기/정상복귀대기) 자체는 기록하지 않는다.
+    //--------------------------------------------------------------------------------//
+    private static async Task LogAlarmTransitionIfNeededAsync(
+        AppDbContext db, int compressorId, ChannelNo channelNo, CompressorChannelSetting setting,
+        AlarmStatus previous, AlarmStatus current)
+    {
+        bool occurred = previous != AlarmStatus.경보발생 && current == AlarmStatus.경보발생;
+        bool cleared = previous == AlarmStatus.정상복귀대기 && current == AlarmStatus.정상;
+        if (!occurred && !cleared) return;
+
+        var info = await GetCompressorContextAsync(db, compressorId);
+        var message = occurred
+            ? $"{info.Region} {info.BuildingName}의 {info.EquipmentName}의 압축기 {info.SequenceNo}번 {setting.ChannelName}값이 범위를 벗어났습니다."
+            : $"{info.Region} {info.BuildingName}의 {info.EquipmentName}의 압축기 {info.SequenceNo}번 {setting.ChannelName}값이 정상 범위로 복귀했습니다.";
+
+        await EventLogger.LogAsync(db, EventLogCategory.Alarm, message,
+            equipmentId: info.EquipmentId, compressorId: compressorId, channelNo: channelNo);
+    }
+
+    //--------------------------------------------------------------------------------//
+    // 통신 장애 경보는 켜지는 순간만 기록한다(복구는 기록 안 함, 사용자 결정).
+    //--------------------------------------------------------------------------------//
+    private static async Task LogCommunicationAlarmAsync(AppDbContext db, int compressorId)
+    {
+        var info = await GetCompressorContextAsync(db, compressorId);
+        var message = $"{info.Region} {info.BuildingName}의 {info.EquipmentName}의 압축기 {info.SequenceNo}번이 통신 장애 상태입니다.";
+
+        await EventLogger.LogAsync(db, EventLogCategory.Communication, message,
+            equipmentId: info.EquipmentId, compressorId: compressorId);
+    }
+
+    //--------------------------------------------------------------------------------//
+    // 경보/통신장애 메시지에 필요한 장비 정보를 조회한다. 전이가 실제로 일어날 때만 호출되는
+    // 드문 경로라, 매 폴링 사이클마다 미리 로드해두지 않고 필요한 순간에만 조회한다.
+    //--------------------------------------------------------------------------------//
+    private static Task<CompressorContext> GetCompressorContextAsync(AppDbContext db, int compressorId) =>
+        (from c in db.Compressors
+         join e in db.Equipments on c.EquipmentId equals e.Id
+         where c.Id == compressorId
+         select new CompressorContext(e.Id, e.Region, e.BuildingName, e.Name, c.SequenceNo))
+        .FirstAsync();
+
+    private record CompressorContext(int EquipmentId, string Region, string BuildingName, string EquipmentName, int SequenceNo);
 }

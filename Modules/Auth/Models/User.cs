@@ -1,14 +1,15 @@
 namespace HRMS.Modules.Auth.Models;
 
+//-----------------------------------------------------------------------------//
+// 사용자 계정 정보. 시스템 로그인 계정과 안전관리 담당자 인적사항을 함께 관리한다.
+// 사용자 역활 : 시스템관리자/안전관리총괄자/안전관리책임자/안전관리원/일반관리자
+//-----------------------------------------------------------------------------//
 public class User
 {
     public int Id { get; set; }
     public string Username { get; set; } = "";
     public string PasswordHash { get; set; } = "";
-    public UserRole Role { get; set; } // 안전관리 역할 (시스템관리자/안전관리총괄자/안전관리책임자/안전관리원/일반관리자)
-
-    // 비상정지는 관리자 권한과 별도로 분리해서 부여할 수 있는 독립 권한이다 (overview.md 6장).
-    public bool CanEmergencyStop { get; set; }
+    public UserRole Role { get; set; } 
 
     public bool IsActive { get; set; } = true;
     public DateTimeOffset CreatedAt { get; set; }

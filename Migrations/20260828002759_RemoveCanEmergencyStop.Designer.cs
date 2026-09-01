@@ -3,6 +3,7 @@ using System;
 using HRMS.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace HRMS.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260828002759_RemoveCanEmergencyStop")]
+    partial class RemoveCanEmergencyStop
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -103,23 +106,14 @@ namespace HRMS.Migrations
                     b.Property<int>("CommunicationStatus")
                         .HasColumnType("integer");
 
-                    b.Property<DateTimeOffset?>("DisconnectedSince")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<int>("EquipmentId")
                         .HasColumnType("integer");
-
-                    b.Property<bool>("HasCommunicationAlarm")
-                        .HasColumnType("boolean");
 
                     b.Property<string>("IpAddress")
                         .HasColumnType("text");
 
                     b.Property<string>("MacAddress")
                         .HasColumnType("text");
-
-                    b.Property<int>("SequenceNo")
-                        .HasColumnType("integer");
 
                     b.HasKey("Id");
 
@@ -145,10 +139,6 @@ namespace HRMS.Migrations
                     b.Property<bool>("AlarmEnabled")
                         .HasColumnType("boolean");
 
-                    b.Property<string>("ChannelName")
-                        .IsRequired()
-                        .HasColumnType("text");
-
                     b.Property<int>("DecimalPlaces")
                         .HasColumnType("integer");
 
@@ -157,10 +147,6 @@ namespace HRMS.Migrations
 
                     b.Property<short?>("LowerLimit")
                         .HasColumnType("smallint");
-
-                    b.Property<string>("Unit")
-                        .IsRequired()
-                        .HasColumnType("text");
 
                     b.Property<short?>("UpperLimit")
                         .HasColumnType("smallint");
@@ -312,17 +298,8 @@ namespace HRMS.Migrations
                     b.Property<int>("Category")
                         .HasColumnType("integer");
 
-                    b.Property<int?>("ChannelNo")
-                        .HasColumnType("integer");
-
-                    b.Property<int?>("CompressorId")
-                        .HasColumnType("integer");
-
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<int?>("EquipmentId")
-                        .HasColumnType("integer");
 
                     b.Property<string>("Message")
                         .IsRequired()
