@@ -56,10 +56,13 @@ public class TrendRecordingService(
         // 압축기 목록을 기준으로 루프를 돌려야 누락 없이 기록된다.)
         // 운전/경보/통신 상태는 압축기 자신이 아니라 소속 장비의 집계값을 그대로 기록한다(사용자 결정).
         // e의 세 필드는 EquipmentStatusAggregator에서 매 3초마다 갱신되므로, 이 시점에 이미 최신값이 들어있다.
+        // 장비 상태가 `운영`인 장비의 압축기만 기록한다 — 운영이 아닌 장비는 폴링도 안 해서 값이
+        // 멈춰 있으므로 기록할 의미가 없다(사용자 결정 2026-09-17, overview.md 4.1).
         //--------------------------------------------------------------------------------//
         var compressors = await (
             from c in db.Compressors
             join e in db.Equipments on c.EquipmentId equals e.Id
+            where e.Status == EquipmentStatus.운영
             select new { c.Id, e.IsRunning, e.AlarmStatus, e.CommunicationStatus }
         ).ToListAsync(stoppingToken);
 

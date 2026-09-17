@@ -29,7 +29,23 @@ public class CompressorPollingService(
     // overview.md 8.1의 시스템 공통 Polling Interval과 동일하게 3초로 고정한다. 
     // (설정화면에서 바꾸는 기능은 아직 없다.)
     //--------------------------------------------------------------------------------//
-    private const int PollIntervalMs = 3000;
+    public const int PollIntervalMs = 3000;
+
+    //--------------------------------------------------------------------------------//
+    // 마지막으로 폴링 사이클이 끝까지 성공한 시각(UTC ticks, 아직 한 번도 없으면 0).
+    // GET /api/system/status의 api.status 판정(수집 서비스가 멈췄는지)에만 쓴다.
+    // 폴링 루프와 API 요청 스레드가 동시에 접근하므로 Interlocked로 읽고 쓴다.
+    //--------------------------------------------------------------------------------//
+    private static long lastCycleCompletedTicks;
+
+    public static DateTimeOffset? LastCycleCompletedAt
+    {
+        get
+        {
+            long ticks = Interlocked.Read(ref lastCycleCompletedTicks);
+            return ticks == 0 ? null : new DateTimeOffset(ticks, TimeSpan.Zero);
+        }
+    }
 
     //--------------------------------------------------------------------------------//
     // 통신 장애가 이 시간 이상 계속 지속되어야 HasCommunicationAlarm을 켠다 — 압축기별 설정이 아니라
@@ -38,11 +54,24 @@ public class CompressorPollingService(
     //--------------------------------------------------------------------------------//
     private static readonly TimeSpan CommunicationFailureAlarmDelay = TimeSpan.FromSeconds(30);
 
+    // "하루가 시작되는데 여전히 끊긴 상태면 값을 0으로" 판정의 기준 시간대(한국 시간).
+    private static readonly TimeSpan KstOffset = TimeSpan.FromHours(9);
+
     //--------------------------------------------------------------------------------//
-    // 이 상태의 장비에 속한 압축기는 수집 대상에서 제외한다 (overview.md 4.1).
+    // 수집 대상 압축기 조회. **장비 상태가 `운영`인 장비의 압축기만** 수집한다(overview.md 4.1,
+    // 사용자 결정 2026-09-17 — 운영이 아닌 장비는 수집도 노출도 하지 않는다). 테스트 모드가 아니면
+    // IP가 없는 압축기는 통신할 수 없으므로 뺀다.
+    // 폴링 루프와 GET /api/system/status(collection.compressorCount)가 같은 기준을 쓰도록 공개한다.
     //--------------------------------------------------------------------------------//
-    private static readonly EquipmentStatus[] ExcludedEquipmentStatuses =
-        [EquipmentStatus.미운영, EquipmentStatus.철거, EquipmentStatus.사용중지];
+    public static IQueryable<Compressor> CollectionTargets(AppDbContext db, bool testMode)
+    {
+        var query = db.Compressors
+            .Join(db.Equipments, c => c.EquipmentId, e => e.Id, (c, e) => new { Compressor = c, e.Status })
+            .Where(x => x.Status == EquipmentStatus.운영)
+            .Select(x => x.Compressor);
+
+        return testMode ? query : query.Where(c => c.IpAddress != null);
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -80,18 +109,10 @@ public class CompressorPollingService(
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        var query = db.Compressors
-            .Join(db.Equipments, c => c.EquipmentId, e => e.Id, (c, e) => new { Compressor = c, e.Status })
-            .Where(x => !ExcludedEquipmentStatuses.Contains(x.Status));
-
-        // 테스트 모드에서는 IP 없는 압축기도 포함
-        if (!testMode)
-            query = query.Where(x => x.Compressor.IpAddress != null); 
-
         //--------------------------------------------------------------------------------//
         // 압축기 목록을 DB에서 새로 읽는다. (이 단계에서는 아직 통신은 안 하고, DB에 손대지 않고 메모리에만 올린다.)
         //--------------------------------------------------------------------------------//
-        var compressors = await query.Select(x => x.Compressor).ToListAsync(stoppingToken);
+        var compressors = await CollectionTargets(db, testMode).ToListAsync(stoppingToken);
 
         //--------------------------------------------------------------------------------//
         // 압축기별로 독립적으로 통신하여, 한 대의 장애/지연이 다른 압축기 폴링에 영향을 주지 않도록 한다.
@@ -103,12 +124,13 @@ public class CompressorPollingService(
             short[] values;
 
             //--------------------------------------------------------------------------------//
-            // 테스트 모드에서는 실제 TCP 통신 없이 전 압축기가 정상 통신하는 것으로 가정하고 랜덤값을 채운다.
-            //--------------------------------------------------------------------------------//    
+            // 테스트 모드에서는 실제 TCP 통신 없이 전 압축기가 정상 통신하는 것으로 가정하고,
+            // 시간에 따라 완만하게 변하는 모의값을 채운다(GenerateTestValues 주석 참고).
+            //--------------------------------------------------------------------------------//
             if (testMode)
             {
                 ok = true;
-                values = GenerateTestValues();
+                values = GenerateTestValues(c.Id);
             }
 
             //--------------------------------------------------------------------------------//
@@ -176,6 +198,13 @@ public class CompressorPollingService(
         await UpdateCurrentValuesAsync(db, results.Where(r => r.Ok), stoppingToken);
 
         //--------------------------------------------------------------------------------//
+        // 통신이 끊긴 압축기는 채널값을 건드리지 않아 직전 성공값이 그대로 유지된다(사양).
+        // 단 그 값이 어제 이전에 측정된 것이면, 즉 "하루가 시작되는데 여전히 끊긴 상태"라면
+        // 전날 값을 계속 끌고 가지 않고 0으로 초기화한다(사용자 결정 2026-09-16).
+        //--------------------------------------------------------------------------------//
+        await ResetStaleValuesAtDayStartAsync(db, results.Where(r => !r.Ok).Select(r => r.Id), stoppingToken);
+
+        //--------------------------------------------------------------------------------//
         // DB에 갱신된 통신상태·채널값·경보상태를 저장하고, 장비 단위로 집계한다.
         //--------------------------------------------------------------------------------//
         await db.SaveChangesAsync(stoppingToken);
@@ -184,14 +213,39 @@ public class CompressorPollingService(
         //  장비 상태 갱신
         //--------------------------------------------------------------------------------//
         await EquipmentStatusAggregator.UpdateAsync(db, stoppingToken);
+
+        Interlocked.Exchange(ref lastCycleCompletedTicks, DateTimeOffset.UtcNow.UtcTicks);
     }
 
-    //--------------------------------------------------------------------------------//    
-    // 원시값(raw int16) 기준 -200 ~ 1200 범위로 생성한다. 기본 경보 상/하한(raw 0~1000)을
-    // 넘나들게 해서 경보발생대기/경보발생/정상복귀대기 전이가 실제로 일어나는 걸 볼 수 있다.
-    //--------------------------------------------------------------------------------//    
-    private static short[] GenerateTestValues() =>
-        [.. Enumerable.Range(0, 7).Select(_ => (short)Random.Shared.Next(-200, 1201))];
+    //--------------------------------------------------------------------------------//
+    // 테스트 모드 채널값 생성 (raw int16, -200 ~ 1200).
+    //
+    // 예전에는 매 폴링마다 독립 난수를 뽑았는데(`Random.Shared.Next(-200, 1201)`), 그러면 값이
+    // 3초마다 완전히 튀어서 **"30초 연속 범위 이탈"이 사실상 발생하지 않았다** — 이탈 확률이
+    // 28.6%라 10회 연속 이탈 확률이 0.286^10 ≈ 3e-6. 그래서 경보가 거의 확정되지 않아
+    // 프론트가 경보/이벤트 화면을 검증할 수 없었다(2026-09-16 확인).
+    //
+    // 실제 센서값은 연속적으로 변하므로, 시간에 따라 완만하게 움직이는 사인파 + 약한 지터로
+    // 바꿨다. 이탈 구간이 수십 분 단위로 유지되어 경보 발생(30초 지연)과 해제가 정상적으로
+    // 확정된다. 트렌드 그래프도 난수 노이즈가 아니라 실제 설비처럼 보인다.
+    //
+    //  - 위상을 압축기·채널마다 다르게 줘서 전 채널이 동시에 경보로 몰리지 않게 한다.
+    //  - **채널 64개 중 1개만** 진폭을 키워 주기적으로 범위(0~1000)를 벗어나고, 나머지는
+    //    범위 안(185~815)에서만 움직인다. 실제 현장처럼 "대부분 정상, 일부만 이상"을 만들면서
+    //    이벤트 물량도 통제하기 위함이다(전 채널이 이탈하면 하루 수만 건이 쌓인다).
+    //--------------------------------------------------------------------------------//
+    private static readonly TimeSpan TestCyclePeriod = TimeSpan.FromHours(6);
+
+    private static short[] GenerateTestValues(int compressorId) =>
+        [.. Enumerable.Range(0, 7).Select(channelIndex =>
+        {
+            int channelSeed = compressorId * 7 + channelIndex;
+            double amplitude = channelSeed % 64 == 0 ? 700 : 300; // 700이면 범위를 벗어난다
+            double phase = channelSeed * 0.37;
+            double angle = 2 * Math.PI * DateTimeOffset.UtcNow.ToUnixTimeSeconds() / TestCyclePeriod.TotalSeconds + phase;
+            double value = 500 + amplitude * Math.Sin(angle) + Random.Shared.Next(-15, 16);
+            return (short)Math.Clamp(value, -200, 1200);
+        })];
 
     //--------------------------------------------------------------------------------//    
     // CH01~CH07 7개 채널의 최신값을 갱신하고, 채널별 경보 상태까지 같이 판정한다.
@@ -200,7 +254,35 @@ public class CompressorPollingService(
     //  AlarmEvaluator가 Enabled/AlarmEnabled를 보고 알아서 "경보비활성화"로 처리한다).
     // CompressorSensorCurrent는 압축기·채널당 정확히 1행만 유지하는 최신값 테이블이라, 이 메서드는
     // 누적 INSERT가 아니라 있으면 갱신(UPDATE)·없으면 최초 1회 생성(INSERT)하는 UPSERT로 동작한다.
-    //--------------------------------------------------------------------------------//    
+    //--------------------------------------------------------------------------------//
+    // 통신이 끊긴 압축기의 "날짜가 바뀌었는데도 여전히 끊긴" 경우를 처리한다.
+    //
+    // 기본 사양은 "끊기면 직전 성공값을 그대로 유지"다(값을 아예 갱신하지 않으므로 자연히 유지됨).
+    // 그런데 전날 값을 다음 날까지 계속 끌고 가면 "어제 값으로 오늘 하루가 채워지는" 문제가 생겨서,
+    // **마지막 측정이 오늘(한국 시간) 00:00 이전이면 전 채널을 0으로 초기화**한다(사용자 결정).
+    // 통신이 복구되면 다음 성공 폴링에서 실제 값으로 덮인다.
+    //
+    // MeasuredAt은 일부러 갱신하지 않는다 — 실제로 측정된 시각이 아니고, 이 값을 그대로 둬야
+    // 다음 사이클에도 같은 판정이 나와 0이 유지된다(이미 0이면 EF가 변경 없음으로 처리).
+    //--------------------------------------------------------------------------------//
+    private static async Task ResetStaleValuesAtDayStartAsync(
+        AppDbContext db, IEnumerable<int> failedCompressorIds, CancellationToken stoppingToken)
+    {
+        var failedIds = failedCompressorIds.ToList();
+        if (failedIds.Count == 0) return;
+
+        var kstToday = DateTimeOffset.UtcNow.ToOffset(KstOffset).Date;
+        var todayStartUtc = new DateTimeOffset(kstToday, KstOffset).ToUniversalTime();
+
+        var stale = await db.CompressorSensorCurrents
+            .Where(s => failedIds.Contains(s.CompressorId) && s.MeasuredAt < todayStartUtc && s.Value != 0)
+            .ToListAsync(stoppingToken);
+
+        foreach (var current in stale)
+            current.Value = 0;
+    }
+
+    //--------------------------------------------------------------------------------//
     private static async Task UpdateCurrentValuesAsync(
         AppDbContext db,
         IEnumerable<(int Id, CommunicationStatus PreviousStatus, bool Ok, short[] Values)> successfulResults,
@@ -249,7 +331,7 @@ public class CompressorPollingService(
                 {
                     var previousAlarmStatus = current.AlarmStatus;
                     AlarmEvaluator.Evaluate(current, setting, now);
-                    await LogAlarmTransitionIfNeededAsync(db, r.Id, channelNo, setting, previousAlarmStatus, current.AlarmStatus);
+                    await LogAlarmTransitionIfNeededAsync(db, r.Id, channelNo, setting, previousAlarmStatus, current.AlarmStatus, current.Value);
                 }
             }
         }
@@ -261,9 +343,18 @@ public class CompressorPollingService(
     //--------------------------------------------------------------------------------//
     private static async Task LogAlarmTransitionIfNeededAsync(
         AppDbContext db, int compressorId, ChannelNo channelNo, CompressorChannelSetting setting,
-        AlarmStatus previous, AlarmStatus current)
+        AlarmStatus previous, AlarmStatus current, short? value)
     {
-        bool occurred = previous != AlarmStatus.경보발생 && current == AlarmStatus.경보발생;
+        //--------------------------------------------------------------------------------//
+        // "발생"은 경보발생대기에서 올라온 것만 인정한다(2026-09-16 수정).
+        // 상태 머신에는 `경보발생 → 정상복귀대기 → 경보발생` 경로가 있는데(해제 지연 대기 중
+        // 값이 다시 범위를 벗어나면 즉시 경보발생으로 복귀), 이건 해제된 적 없는 **같은 경보의
+        // 연장**이라 새 이벤트로 기록하면 안 된다. 이전 조건(previous != 경보발생)은 이 경로까지
+        // 발생으로 잡아서, 해제 지연이 길고 값이 경계에서 흔들리는 채널에서 같은 경보가 수십 초
+        // 간격으로 수천 건 쌓였다(장비 39 CH05: 하루 이탈 1,557건 / 복귀 0건).
+        // 경보발생 진입 경로는 경보발생대기와 정상복귀대기 둘뿐이라 이 조건으로 충분하다.
+        //--------------------------------------------------------------------------------//
+        bool occurred = previous == AlarmStatus.경보발생대기 && current == AlarmStatus.경보발생;
         bool cleared = previous == AlarmStatus.정상복귀대기 && current == AlarmStatus.정상;
         if (!occurred && !cleared) return;
 
@@ -272,8 +363,10 @@ public class CompressorPollingService(
             ? $"{info.Region} {info.BuildingName}의 {info.EquipmentName}의 압축기 {info.SequenceNo}번 {setting.ChannelName}값이 범위를 벗어났습니다."
             : $"{info.Region} {info.BuildingName}의 {info.EquipmentName}의 압축기 {info.SequenceNo}번 {setting.ChannelName}값이 정상 범위로 복귀했습니다.";
 
-        await EventLogger.LogAsync(db, EventLogCategory.Alarm, message,
-            equipmentId: info.EquipmentId, compressorId: compressorId, channelNo: channelNo);
+        // 측정값·임계값·단위·소수점을 함께 스냅샷으로 남긴다 — 자료 조회 화면의 이벤트 상세 팝업용.
+        await EventLogger.LogAlarmAsync(db, message,
+            equipmentId: info.EquipmentId, compressorId: compressorId, channelNo: channelNo,
+            value: value, setting: setting);
     }
 
     //--------------------------------------------------------------------------------//

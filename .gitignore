@@ -20,3 +20,6 @@ Thumbs.db
 
 # Local settings that may contain secrets
 appsettings.*.local.json
+
+# 첨부파일 저장 디렉토리 (FileStorage:RootPath 기본값) — 실제 업로드 파일은 배포 시 별도로 백업
+App_Data/

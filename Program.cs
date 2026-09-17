@@ -35,6 +35,12 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 //--------------------------------------------------------------------------------//
 builder.Services.AddScoped<JwtTokenService>();
 
+//--------------------------------------------------------------------------------//
+// 첨부파일(장비 사진 등) 저장 헬퍼. 실제 바이트는 DB가 아니라 파일시스템에 저장한다
+// (appsettings의 FileStorage:RootPath, Modules/Attachment/README.md 참고).
+//--------------------------------------------------------------------------------//
+builder.Services.AddScoped<HRMS.Modules.Attachment.AttachmentStorage>();
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -72,6 +78,18 @@ builder.Services.AddHostedService<HRMS.Modules.Communication.CompressorPollingSe
 // (Modules/Trend/TrendRecordingService.cs)
 //--------------------------------------------------------------------------------//
 builder.Services.AddHostedService<HRMS.Modules.Trend.TrendRecordingService>();
+
+//--------------------------------------------------------------------------------//
+// 점검일지 자동 기록 서비스 — 매일 한국시간 00:00에 전날 값을 이어서 채운다
+// (Modules/Inspection/InspectionAutoFillService.cs)
+//--------------------------------------------------------------------------------//
+builder.Services.AddHostedService<HRMS.Modules.InspectionReport.InspectionAutoFillService>();
+
+//--------------------------------------------------------------------------------//
+// 운전일지 자동 기록 서비스 — 매일 한국시간 09/13/16/21시에 채널 자동측정 항목을 덮어쓰고,
+// 사용자 직접입력 항목·기준값은 이어채운다 (Modules/OperationReport/OperationAutoFillService.cs)
+//--------------------------------------------------------------------------------//
+builder.Services.AddHostedService<HRMS.Modules.OperationReport.OperationAutoFillService>();
 
 //--------------------------------------------------------------------------------//
 // Add services to the container.

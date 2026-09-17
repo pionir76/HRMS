@@ -24,4 +24,10 @@ public class Compressor
     //----------------------------------------------------------------------------------//
     public DateTimeOffset? DisconnectedSince { get; set; }
     public bool HasCommunicationAlarm { get; set; }
+
+    //----------------------------------------------------------------------------------//
+    // 압축기 등록(장비 등록 시점) 때 CH01~07 채널 설정 7행을 한 번에 같이 만들기 위한 탐색 속성.
+    // ChannelDefaults.CreateAll() 참고.
+    //----------------------------------------------------------------------------------//
+    public List<CompressorChannelSetting> ChannelSettings { get; set; } = [];
 }

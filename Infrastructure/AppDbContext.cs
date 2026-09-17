@@ -3,6 +3,13 @@ using HRMS.Modules.Equipment.Models;
 using HRMS.Modules.Trend.Models;
 using HRMS.Modules.Auth.Models;
 using HRMS.Modules.Logging.Models;
+using HRMS.Modules.InspectionReport.Models;
+using HRMS.Modules.OperationReport.Models;
+using HRMS.Modules.Attachment.Models;
+using HRMS.Modules.EquipmentInspectionHistory.Models;
+using HRMS.Modules.RepairLog.Models;
+using HRMS.Modules.TrainingLog.Models;
+using HRMS.Modules.Notice.Models;
 
 namespace HRMS.Infrastructure;
 
@@ -26,6 +33,16 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<User> Users => Set<User>();
     public DbSet<UserEquipment> UserEquipments => Set<UserEquipment>();
     public DbSet<EventLog> EventLogs => Set<EventLog>();
+    public DbSet<InspectionLog> InspectionLogs => Set<InspectionLog>();
+    public DbSet<InspectionResult> InspectionResults => Set<InspectionResult>();
+    public DbSet<OperationLog> OperationLogs => Set<OperationLog>();
+    public DbSet<OperationItemValue> OperationItemValues => Set<OperationItemValue>();
+    public DbSet<OperationReferenceValue> OperationReferenceValues => Set<OperationReferenceValue>();
+    public DbSet<Attachment> Attachments => Set<Attachment>();
+    public DbSet<EquipmentInspectionHistory> EquipmentInspectionHistories => Set<EquipmentInspectionHistory>();
+    public DbSet<RepairLog> RepairLogs => Set<RepairLog>();
+    public DbSet<TrainingLog> TrainingLogs => Set<TrainingLog>();
+    public DbSet<Notice> Notices => Set<Notice>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -39,7 +56,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
         modelBuilder.Entity<Compressor>()
             .HasOne<Equipment>()
-            .WithMany()
+            .WithMany(e => e.Compressors)
             .HasForeignKey(c => c.EquipmentId);
 
         //--------------------------------------------------------------------------------//
@@ -50,7 +67,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         {
             b.HasKey(x => new { x.CompressorId, x.ChannelNo });
             b.HasOne<Compressor>()
-                .WithMany()
+                .WithMany(c => c.ChannelSettings)
                 .HasForeignKey(x => x.CompressorId);
         });
 
@@ -90,5 +107,85 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             b.HasOne<User>().WithMany().HasForeignKey(x => x.UserId);
             b.HasOne<Equipment>().WithMany().HasForeignKey(x => x.EquipmentId);
         });
+
+        //--------------------------------------------------------------------------------//
+        // 점검일지 1건 = 장비 1개 + 주(일요일 날짜) 1개.
+        //--------------------------------------------------------------------------------//
+        modelBuilder.Entity<InspectionLog>(b =>
+        {
+            b.HasIndex(x => new { x.EquipmentId, x.WeekStartDate }).IsUnique();
+            b.HasOne<Equipment>().WithMany().HasForeignKey(x => x.EquipmentId);
+        });
+
+        //--------------------------------------------------------------------------------//
+        // 점검일지 1건 안에 점검항목(ItemNo)당 정확히 1행 — 별도 Id 없이 복합키로 둔다.
+        //--------------------------------------------------------------------------------//
+        modelBuilder.Entity<InspectionResult>(b =>
+        {
+            b.HasKey(x => new { x.LogId, x.ItemNo });
+            b.HasOne<InspectionLog>().WithMany(x => x.Results).HasForeignKey(x => x.LogId);
+        });
+
+        //--------------------------------------------------------------------------------//
+        // 운전일지 1건 = 장비 1개 + 날짜 1개.
+        //--------------------------------------------------------------------------------//
+        modelBuilder.Entity<OperationLog>(b =>
+        {
+            b.HasIndex(x => new { x.EquipmentId, x.Date }).IsUnique();
+            b.HasOne<Equipment>().WithMany().HasForeignKey(x => x.EquipmentId);
+        });
+
+        //--------------------------------------------------------------------------------//
+        // (LogId, ItemKey, CompressorId) 유일성은 NULL이 섞인 복합키라 DB 제약 대신 앱 코드가
+        // 보장한다(OperationReport/README.md 참고) — 그래서 별도 Id를 기본키로 쓴다.
+        //--------------------------------------------------------------------------------//
+        modelBuilder.Entity<OperationItemValue>(b =>
+        {
+            b.HasIndex(x => new { x.LogId, x.ItemKey, x.CompressorId });
+            b.HasOne<OperationLog>().WithMany(x => x.Items).HasForeignKey(x => x.LogId);
+            b.HasOne<Compressor>().WithMany().HasForeignKey(x => x.CompressorId).IsRequired(false);
+        });
+
+        modelBuilder.Entity<OperationReferenceValue>(b =>
+        {
+            b.HasIndex(x => new { x.LogId, x.ItemKey });
+            b.HasOne<OperationLog>().WithMany(x => x.References).HasForeignKey(x => x.LogId);
+        });
+
+        //--------------------------------------------------------------------------------//
+        // 같은 (OwnerType, OwnerId, Slot) 조합은 유일해야 한다(장비 사진 슬롯당 1장 규칙을
+        // DB 레벨에서도 강제). Slot이 null인 다건 첨부(게시판 등)는 이 제약에서 제외한다.
+        //--------------------------------------------------------------------------------//
+        modelBuilder.Entity<Attachment>(b =>
+        {
+            b.HasIndex(x => new { x.OwnerType, x.OwnerId });
+            b.HasIndex(x => new { x.OwnerType, x.OwnerId, x.Slot })
+                .IsUnique()
+                .HasFilter("\"Slot\" IS NOT NULL");
+        });
+
+        //--------------------------------------------------------------------------------//
+        // 장비 검사이력 — 장비 1개당 이력이 자유롭게 여러 건 쌓이는 로그성 테이블(주/일 단위
+        // 유니크 제약 없음). 목록 조회가 항상 EquipmentId로 걸리므로 인덱스만 둔다.
+        //--------------------------------------------------------------------------------//
+        modelBuilder.Entity<EquipmentInspectionHistory>(b =>
+        {
+            b.HasIndex(x => x.EquipmentId);
+            b.HasOne<Equipment>().WithMany().HasForeignKey(x => x.EquipmentId);
+        });
+
+        //--------------------------------------------------------------------------------//
+        // 수리일지 — 검사이력과 같은 로그성 테이블(장비당 여러 건, 유니크 제약 없음).
+        // 결재 데이터는 이 엔티티의 인라인 컬럼(Level1~3)이라 별도 설정이 필요 없다.
+        //--------------------------------------------------------------------------------//
+        modelBuilder.Entity<RepairLog>(b =>
+        {
+            b.HasIndex(x => x.EquipmentId);
+            b.HasOne<Equipment>().WithMany().HasForeignKey(x => x.EquipmentId);
+        });
+
+        // TrainingLog(교육훈련 일지)와 Notice(공지사항)는 여기 설정이 없다 — 장비에 매달리지
+        // 않는 전사 문서라 FK가 없고, 조회도 "전체를 정렬해서 반환"뿐이라 인덱스를 둘 필요가
+        // 없다(빠뜨린 게 아님).
     }
 }

@@ -235,7 +235,7 @@ Remove-Item Env:\PGPASSWORD
 
 ## 12. 테스트 모드 (실제 장비 네트워크 없이 전체 흐름 확인)
 
-`appsettings.Development.json`의 `"Communication": { "TestMode": true }`가 켜져 있으면 실제 TCP 통신 없이 전 압축기가 정상 통신하는 것으로 가정하고 랜덤값을 채운다. 통신상태·경보판정·장비상태 집계까지 전부 실제로 동작하는 걸 확인할 수 있다 (자세한 동작은 [program-flow.md](program-flow.md) 6장 참고).
+`appsettings.Development.json`의 `"Communication": { "TestMode": true }`가 켜져 있으면 실제 TCP 통신 없이 전 압축기가 정상 통신하는 것으로 가정하고, 시간에 따라 완만하게 변하는 모의값(사인파 6시간 주기, 64채널 중 1개만 경보 범위 이탈)을 채운다. 통신상태·경보판정·장비상태 집계까지 전부 실제로 동작하는 걸 확인할 수 있다 (자세한 동작은 [program-flow.md](program-flow.md) 6장 참고).
 
 - 켜기/끄기는 설정값만 바꾸고 **앱 재시작**하면 된다.
 - 운영용 `appsettings.json`은 기본 `false` — 실제 현장 배포 시에는 반드시 꺼진 상태인지 확인한다.
@@ -268,6 +268,16 @@ SELECT * FROM "Equipments" LIMIT 5;
 ```나가기
 \q
 ````
+
+## 실제 설치 시 변경 필요 항목
+
+| 항목 | 위치 | 현재값(개발 PC) | 설치 시 할 일 |
+|---|---|---|---|
+| 시스템 정보 저장소 대상 드라이브 | `appsettings.json` → `SystemStatus:StorageDrive` | `C:\` | 운영 서버의 **PostgreSQL 데이터 폴더가 있는 드라이브**로 변경. 확인: `Get-CimInstance Win32_Service -Filter "Name like 'postgres%'"`의 `PathName`에서 `-D` 뒤 경로 |
+| 수집 서비스 `주의` 판정 기준 | `Modules/SystemStatus/Controllers/SystemStatusController.cs` → `CollectionWarningAge` | 10초 | 실제 장비에서 응답 없는 압축기가 있으면 사이클이 약 9~10초까지 늘어 `주의`가 잦을 수 있다. 확인 후 필요하면 늘린다 |
+| DB 백업 | — | 기능 없음(`databaseBackup: null`) | 백업 정책 결정 후 구현 |
+
+자세한 배경은 `Modules/SystemStatus/README.md` 참고.
 
 ## 임시 테스트 상태 (현장 배포 전 원복 필요)
 

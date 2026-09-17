@@ -6,5 +6,6 @@ public enum EventLogCategory
     EmergencyStop,
     Communication,
     Alarm,
-    System
+    System,
+    Approval
 }

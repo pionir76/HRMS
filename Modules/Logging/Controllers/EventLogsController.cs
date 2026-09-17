@@ -28,8 +28,6 @@ public class EventLogsController(AppDbContext db) : ControllerBase
             ? await db.EventLogs.Where(e => e.CreatedAt > s).OrderBy(e => e.CreatedAt).Take(limit).ToListAsync()
             : await db.EventLogs.OrderByDescending(e => e.CreatedAt).Take(limit).ToListAsync();
 
-        return Ok(entities.Select(e => new EventLogDto(
-            e.Id, e.Category.ToString(), e.Message, e.Username,
-            e.EquipmentId, e.CompressorId, e.ChannelNo?.ToString(), e.CreatedAt)).ToList());
+        return Ok(entities.Select(e => e.ToDto()).ToList());
     }
 }
