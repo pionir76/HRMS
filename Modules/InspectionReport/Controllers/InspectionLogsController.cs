@@ -1,3 +1,4 @@
+using HRMS.Modules.Auth;
 using System.Security.Claims;
 using HRMS.Infrastructure;
 using HRMS.Modules.Approval;
@@ -191,16 +192,7 @@ public class InspectionLogsController(AppDbContext db) : ControllerBase
         return Ok(ToDto(log, log.EquipmentId, log.WeekStartDate));
     }
 
-    private bool TryGetCurrentUser(out int userId, out UserRole role)
-    {
-        role = default;
-        userId = 0;
-        var idClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        var roleClaim = User.FindFirstValue(ClaimTypes.Role);
-        if (idClaim is null || roleClaim is null || !int.TryParse(idClaim, out userId) || !Enum.TryParse(roleClaim, out role))
-            return false;
-        return true;
-    }
+    private bool TryGetCurrentUser(out int userId, out UserRole role) => User.TryGetUser(out userId, out role);
 
     private static (ApprovalLevelMode Mode, int? ApproverId, string? ApproverName, DateTimeOffset? ApprovedAt) GetLevel(InspectionLog log, int level) => level switch
     {

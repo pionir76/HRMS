@@ -1,3 +1,4 @@
+using HRMS.Modules.Auth;
 using System.Security.Claims;
 using HRMS.Infrastructure;
 using HRMS.Modules.Attachment.Models;
@@ -264,7 +265,7 @@ public class UsersController(AppDbContext db) : ControllerBase
         return count == equipmentIds.Count;
     }
 
-    private int CurrentUserId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+    private int CurrentUserId => User.GetUserId();
 
     // 담당장비·신고서를 사용자별로 한 번에 모아서 붙인다(사용자 수만큼 쿼리가 늘지 않게).
     private async Task<List<OrgUserDto>> ToDtosAsync(List<UserEntity> users)

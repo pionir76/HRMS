@@ -1,3 +1,4 @@
+using HRMS.Modules.Auth;
 using System.Security.Claims;
 using HRMS.Infrastructure;
 using HRMS.Modules.Attachment.Models;
@@ -16,7 +17,7 @@ namespace HRMS.Modules.Attachment.Controllers;
 //     확장자 제한 없고 슬롯도 쓰지 않는다(다건 첨부). 교육훈련은 결재가 진행되면 잠긴다.
 //   - AppointmentReport(선해임 신고서): 시스템관리자만, 사용자당 1건(서버가 슬롯 "report"를
 //     강제해서 재업로드 시 교체), 확장자 제한 없음(CheckAppointmentReportOwnerAsync)
-// 파일 용량 제한(10MB)은 Doc/Front_Work.md 13장 공통 규칙이라 OwnerType 상관없이 전부 적용한다.
+// 파일 용량 제한(10MB)은 첨부파일 공통 규칙이라 OwnerType 상관없이 전부 적용한다(api-manual.md 첨부파일 절).
 // 조회(GET)는 어느 OwnerType이든 로그인만 요구한다.
 //-----------------------------------------------------------------------------//
 [ApiController]
@@ -240,10 +241,9 @@ public class AttachmentsController(AppDbContext db, AttachmentStorage storage) :
         return null;
     }
 
-    private bool IsSystemAdmin =>
-        Enum.TryParse<UserRole>(User.FindFirstValue(ClaimTypes.Role), out var role) && role == UserRole.시스템관리자;
+    private bool IsSystemAdmin => User.IsSystemAdmin();
 
-    private int CurrentUserId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+    private int CurrentUserId => User.GetUserId();
 
     private static AttachmentDto ToDto(Models.Attachment a) => new(
         a.Id, a.OwnerType.ToString(), a.OwnerId, a.Slot, a.FileName, a.ContentType, a.SizeBytes,

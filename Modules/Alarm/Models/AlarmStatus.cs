@@ -12,3 +12,15 @@ public enum AlarmStatus
     정상복귀대기,
     경보비활성화
 }
+
+public static class AlarmStatusExtensions
+{
+    //--------------------------------------------------------------------------------//
+    // API/트렌드의 hasAlarm 판정 — **확정된 경보만** true (사용자 결정 2026-09-17).
+    // 확정된 경보 = 경보발생, 그리고 아직 해제가 확정되지 않은 정상복귀대기.
+    // 경보발생대기(지연시간을 채우기 전)와 경보비활성화는 false다.
+    // 이전에는 "정상이 아니면 true"라서 경보발생대기/경보비활성화도 경보로 보였다.
+    //--------------------------------------------------------------------------------//
+    public static bool IsConfirmedAlarm(this AlarmStatus status) =>
+        status is AlarmStatus.경보발생 or AlarmStatus.정상복귀대기;
+}

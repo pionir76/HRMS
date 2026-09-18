@@ -8,5 +8,5 @@
 
 ## 내부 구성
 
-- `Models/` — `RunningStatus` enum, `UtilizationDto`
+- `Models/` — `UtilizationDto`(가동률 응답)
 - `Controllers/` — `UtilizationController` (가동률 조회 API)

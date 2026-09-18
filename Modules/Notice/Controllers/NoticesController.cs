@@ -1,3 +1,4 @@
+using HRMS.Modules.Auth;
 using System.Security.Claims;
 using HRMS.Infrastructure;
 using HRMS.Modules.Attachment;
@@ -143,10 +144,9 @@ public class NoticesController(AppDbContext db, AttachmentStorage storage) : Con
         return Ok(ToDto(notice, counts.GetValueOrDefault(id)));
     }
 
-    private bool IsSystemAdmin =>
-        Enum.TryParse<UserRole>(User.FindFirstValue(ClaimTypes.Role), out var role) && role == UserRole.시스템관리자;
+    private bool IsSystemAdmin => User.IsSystemAdmin();
 
-    private int CurrentUserId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+    private int CurrentUserId => User.GetUserId();
 
     private bool CanManage(Models.Notice notice) => IsSystemAdmin || notice.CreatedByUserId == CurrentUserId;
 

@@ -18,5 +18,6 @@
 - `Controllers/AuthController.cs` — `POST /api/auth/login`, `POST /api/auth/logout`
 - `Services/JwtTokenService.cs` — 토큰 발급
 - `Models/` — `User`, `UserRole`, `UserEquipment`, 요청/응답 DTO
+- `CurrentUser.cs` — JWT 클레임에서 로그인 사용자 id/역할을 꺼내는 `ClaimsPrincipal` 확장 메서드(`GetUserId`/`IsSystemAdmin`/`TryGetUser`). 같은 파싱 코드가 컨트롤러 10여 곳에 복사돼 있던 것을 여기로 모았다(2026-09-18)
 
 기존 조회 API(Equipments/Compressors/Trend/Utilization)는 전부 `[Authorize]`가 적용되어 로그인 없이는 호출할 수 없다.

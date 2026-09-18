@@ -1,3 +1,4 @@
+using HRMS.Modules.Auth;
 using System.Security.Claims;
 using HRMS.Infrastructure;
 using HRMS.Modules.Approval;
@@ -242,10 +243,9 @@ public class TrainingLogsController(AppDbContext db, AttachmentStorage storage) 
     private static bool HasAnyApproval(Models.TrainingLog log) =>
         log.Level1ApprovedAt is not null || log.Level2ApprovedAt is not null || log.Level3ApprovedAt is not null;
 
-    private bool IsSystemAdmin =>
-        Enum.TryParse<UserRole>(User.FindFirstValue(ClaimTypes.Role), out var role) && role == UserRole.시스템관리자;
+    private bool IsSystemAdmin => User.IsSystemAdmin();
 
-    private int CurrentUserId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+    private int CurrentUserId => User.GetUserId();
 
     private bool CanEdit(Models.TrainingLog log) =>
         !HasAnyApproval(log) && (IsSystemAdmin || log.CreatedByUserId == CurrentUserId);
@@ -262,16 +262,7 @@ public class TrainingLogsController(AppDbContext db, AttachmentStorage storage) 
         return (userId, userName);
     }
 
-    private bool TryGetCurrentUser(out int userId, out UserRole role)
-    {
-        role = default;
-        userId = 0;
-        var idClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        var roleClaim = User.FindFirstValue(ClaimTypes.Role);
-        if (idClaim is null || roleClaim is null || !int.TryParse(idClaim, out userId) || !Enum.TryParse(roleClaim, out role))
-            return false;
-        return true;
-    }
+    private bool TryGetCurrentUser(out int userId, out UserRole role) => User.TryGetUser(out userId, out role);
 
     private async Task<Dictionary<int, int>> GetAttachmentCountsAsync(IEnumerable<int> ids)
     {

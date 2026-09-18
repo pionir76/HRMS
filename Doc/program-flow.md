@@ -60,11 +60,12 @@
    - **실제 모드**: `PcLinkClient.ReadChannelsAsync()`를 `Task.WhenAll`로 동시 호출. 압축기 하나가 타임아웃 나도 `try/catch`로 감싸져 있어서 다른 압축기 호출에 영향을 주지 않는다.
    - 이 단계에서는 DB에 아무것도 쓰지 않는다(동시 실행 중 `DbContext`를 건드리면 스레드 안전성 문제가 생기므로, 결과만 메모리에 모아둔다).
 3. **통신상태 반영** — 성공하면 `연결됨`, 실패인데 직전이 `연결됨`이었으면 `재접속중`, 그 외 실패는 `끊김`. 같은 시점에 **통신 장애 경보**(`HasCommunicationAlarm`)도 갱신한다 — 성공하면 즉시 `false`로 초기화, 실패하면 처음 끊긴 시각(`DisconnectedSince`)만 기록해뒀다가 `CommunicationFailureAlarmDelay`(30초 고정, 통신 모듈 공통값) 이상 계속 끊긴 상태일 때만 `true`로 켠다. 통신이 불안정해서 짧게 끊겼다 붙었다 하는 것까지 매번 경보로 잡지 않기 위한 디바운스이며, 채널값 기준 `AlarmStatus`와는 완전히 별개다(사용자 결정).
-4. **현재값 + 채널 경보 판정** (`UpdateCurrentValuesAsync`) — 성공한 압축기만 대상으로:
-   - CH01~07 값을 `CompressorSensorCurrent`에 UPSERT (압축기당 최대 7행 고정, 계속 늘어나지 않음)
-   - 값을 갱신한 직후 `AlarmEvaluator.Evaluate()`로 그 채널의 경보 상태까지 같이 판정
-5. **저장** — `SaveChangesAsync()`로 3~4단계 변경사항 커밋.
-6. **장비 단위 집계** (`EquipmentStatusAggregator.UpdateAsync()`) — 채널 → 압축기 → 장비 순으로 "가장 심각한 상태"를 집계하고, 운전전류 임계값으로 운전/정지를 판정한다. 압축기·장비 수가 몇백 대 수준이라 매 사이클 전체를 다시 계산해도 부담 없다.
+4. **현재값 갱신** (`UpdateCurrentValuesAsync`) — 성공한 압축기만 대상으로 CH01~07 값을 `CompressorSensorCurrent`에 UPSERT (압축기당 최대 7행 고정, 계속 늘어나지 않음). 끊긴 압축기는 값을 유지하되 날짜가 바뀌었으면 0으로 초기화(`ResetStaleValuesAtDayStartAsync`).
+5. **저장 + 운전 판정** — `SaveChangesAsync()`로 3~4단계를 커밋한 뒤 `EquipmentStatusAggregator.UpdateRunningAsync()`로 운전전류 임계값 기준 장비 운전/정지를 **경보 판정보다 먼저** 정한다.
+6. **채널 경보 판정** (`EvaluateAlarmsAsync`) — **장비가 운전 중이 아니면 경보 판정을 하지 않는다**(사용자 결정 2026-09-17): 그 장비 모든 압축기의 모든 채널을 무조건 `정상`(대기 타이머 초기화)으로 두고 이벤트도 남기지 않는다. 운전 중인 장비는 이번 사이클에 통신 성공한 압축기만 `AlarmEvaluator.Evaluate()`로 판정한다. 그 뒤 저장.
+   - 순서를 5→6으로 둔 이유: 경보 판정이 **이번 사이클**의 운전 여부를 봐야 해서다. 예전처럼 값 갱신과 동시에 판정하면 한 사이클(3초) 전 운전 여부를 보게 된다.
+   - 통신 장애 경보(`HasCommunicationAlarm`)는 이 규칙과 무관하다(통신이 끊기면 운전 판정도 정지가 되므로, 묶으면 통신 장애 경보가 절대 안 뜬다).
+7. **경보·통신 집계** (`EquipmentStatusAggregator.UpdateAlarmAndCommunicationAsync()`) — 채널 → 압축기 → 장비 순으로 "가장 심각한 상태"를 집계한다. 압축기·장비 수가 몇백 대 수준이라 매 사이클 전체를 다시 계산해도 부담 없다.
 
 ### PC-Link 통신 (Modules/Communication/Protocol/PcLinkClient.cs)
 
@@ -137,7 +138,7 @@ CompressorChannelSetting        CompressorSensorCurrent
 - `MeasuredAt`은 UTC로 계산·저장한다. Npgsql이 `timestamptz` 컬럼에 UTC(offset 0)가 아닌 `DateTimeOffset`은 거부하기 때문이다. 한국은 UTC+9시(분 단위 오차 없음)라 정각 판단 자체엔 영향이 없다.
 - 통신 이력이 한 번도 없는 압축기도 매분 행을 만든다(채널값은 NULL).
 - `IsRunning`/`HasAlarm`/`IsConnected` 셋 다 압축기 개별이 아니라 **소속 장비의 집계 상태를 그대로 복사**한다(사용자 결정). 같은 장비의 압축기 여러 대는 이 세 값이 전부 동일하다.
-- `HasAlarm`/`IsConnected`는 `Equipment.AlarmStatus`/`CommunicationStatus`(5단계/3단계 세부 상태)를 그대로 저장하지 않고 `!= 정상`/`== 연결됨` 여부만 boolean으로 남긴다 — 장비 단위에서는 "정상이냐 아니냐", "연결됐냐 아니냐"만 의미가 있다는 원칙(경보/통신은 이분법, [EquipmentStatusAggregator.cs](../Modules/Equipment/EquipmentStatusAggregator.cs) 참고)을 트렌드 기록에도 동일하게 적용한 것이다. 트렌드 화면에서 "왜 이 압축기 값이 그대로 유지되는지"(통신장애 때문인지)는 `IsConnected`로 구분한다.
+- `HasAlarm`/`IsConnected`는 `Equipment.AlarmStatus`/`CommunicationStatus`(5단계/3단계 세부 상태)를 그대로 저장하지 않고 확정된 경보 여부(`IsConfirmedAlarm()` — 경보발생/정상복귀대기만 true, 2026-09-17부터. 그 전 기록은 `!= 정상` 기준)/`== 연결됨` 여부만 boolean으로 남긴다 — 장비 단위에서는 "정상이냐 아니냐", "연결됐냐 아니냐"만 의미가 있다는 원칙(경보/통신은 이분법, [EquipmentStatusAggregator.cs](../Modules/Equipment/EquipmentStatusAggregator.cs) 참고)을 트렌드 기록에도 동일하게 적용한 것이다. 트렌드 화면에서 "왜 이 압축기 값이 그대로 유지되는지"(통신장애 때문인지)는 `IsConnected`로 구분한다.
 - 데이터 사용량은 [Modules/Trend/README.md](../Modules/Trend/README.md)에 실측치로 정리되어 있다(하루 약 52MB, 1년 약 18.4GB, 압축기 244대 기준).
 
 ## 5.2 점검일지 자동 기록 (Modules/InspectionReport/InspectionAutoFillService.cs)

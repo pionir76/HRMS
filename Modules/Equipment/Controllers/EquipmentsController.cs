@@ -54,10 +54,10 @@ public class EquipmentsController(AppDbContext db) : ControllerBase
 
         return Ok(equipments.Select(e => new EquipmentStatusDto(
             e.Id, e.Region, e.BuildingName, e.Name, e.Status.ToString(),
-            e.IsRunning, e.CommunicationStatus.ToString(), e.AlarmStatus != AlarmStatus.정상,
+            e.IsRunning, e.CommunicationStatus.ToString(), e.AlarmStatus.IsConfirmedAlarm(),
             compressorsByEquipment[e.Id]
                 .Select(c => new CompressorStatusDto(
-                    c.Id, c.SequenceNo, c.CommunicationStatus.ToString(), c.AlarmStatus != AlarmStatus.정상))
+                    c.Id, c.SequenceNo, c.CommunicationStatus.ToString(), c.AlarmStatus.IsConfirmedAlarm()))
                 .ToList()
         )).ToList());
     }
@@ -84,7 +84,7 @@ public class EquipmentsController(AppDbContext db) : ControllerBase
 
         var entities = await db.Compressors.Where(c => c.EquipmentId == id).OrderBy(c => c.SequenceNo).ToListAsync();
         return Ok(entities.Select(c => new CompressorDto(
-            c.Id, c.SequenceNo, c.IpAddress, c.MacAddress, c.CommunicationStatus.ToString(), c.AlarmStatus != AlarmStatus.정상)).ToList());
+            c.Id, c.SequenceNo, c.IpAddress, c.MacAddress, c.CommunicationStatus.ToString(), c.AlarmStatus.IsConfirmedAlarm())).ToList());
     }
 
     //---------------------------------------------------------------------------//
@@ -271,6 +271,6 @@ public class EquipmentsController(AppDbContext db) : ControllerBase
         e.HasBrine, e.BrineInletMin, e.BrineInletMax, e.BrineOutletMin, e.BrineOutletMax,
         e.HasVoltage, e.VoltageMin, e.VoltageMax,
         e.RunningCurrentThreshold, runningCurrentThresholdDecimalPlaces,
-        e.IsRunning, e.CommunicationStatus.ToString(), e.AlarmStatus != AlarmStatus.정상,
+        e.IsRunning, e.CommunicationStatus.ToString(), e.AlarmStatus.IsConfirmedAlarm(),
         photoFlags.HasEquipmentPhoto, photoFlags.HasInstallationPhoto);
 }

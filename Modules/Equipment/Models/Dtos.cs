@@ -5,8 +5,9 @@ namespace HRMS.Modules.Equipment.Models;
 // enum은 전부 문자열(예: "운영", "연결됨", "CH01")로 내려간다 — 컨트롤러에서 .ToString()으로 변환한다.
 // IsRunning/CommunicationStatus/HasAlarm은 관리자가 설정하는 Status와 별개로, 소속 압축기
 // 데이터로부터 매 폴링 사이클 자동 집계되는 실시간 파생 상태다 (EquipmentStatusAggregator).
-// HasAlarm은 세부 단계(경보발생대기/정상복귀대기 등) 없이 "정상"인지 아닌지만 나타낸다
-// (TrendPointDto.HasAlarm과 동일한 원칙 — 실시간 현황 화면엔 확정 여부만 필요하다는 사용자 결정).
+// HasAlarm은 세부 단계 없이 **확정된 경보인지**만 나타낸다 — 경보발생/정상복귀대기면 true,
+// 경보발생대기/경보비활성화/정상이면 false (AlarmStatusExtensions.IsConfirmedAlarm, 사용자 결정 2026-09-17).
+// TrendPointDto.HasAlarm과 동일한 원칙 — 실시간 현황 화면엔 확정 여부만 필요하다는 사용자 결정.
 //
 // 장비 속성 전체(장비관리 화면용). 필드 구성/의미는 Modules/Equipment/README.md "장비 속성"
 // 절이 최신 기준이다 — Equipment 엔티티를 고칠 때는 이 DTO와 README를 같이 갱신한다.

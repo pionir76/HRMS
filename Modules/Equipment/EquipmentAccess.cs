@@ -1,3 +1,4 @@
+using HRMS.Modules.Auth;
 using System.Security.Claims;
 using HRMS.Infrastructure;
 using HRMS.Modules.Auth.Models;
@@ -15,9 +16,7 @@ public static class EquipmentAccess
 {
     public static async Task<bool> CanManageAsync(AppDbContext db, ClaimsPrincipal user, int equipmentId)
     {
-        var idClaim = user.FindFirstValue(ClaimTypes.NameIdentifier);
-        var roleClaim = user.FindFirstValue(ClaimTypes.Role);
-        if (idClaim is null || roleClaim is null || !int.TryParse(idClaim, out var userId) || !Enum.TryParse<UserRole>(roleClaim, out var role))
+        if (!user.TryGetUser(out int userId, out var role))
             return false;
 
         if (role == UserRole.시스템관리자)

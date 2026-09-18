@@ -35,7 +35,7 @@ public class CompressorsController(AppDbContext db) : ControllerBase
 
         return Ok(rows.Select(r => new CompressorFlatDto(
             r.c.Id, r.c.EquipmentId, r.c.SequenceNo, r.BuildingName, r.Name, r.c.IpAddress, r.c.MacAddress,
-            r.c.CommunicationStatus.ToString(), r.c.AlarmStatus != AlarmStatus.정상)).ToList());
+            r.c.CommunicationStatus.ToString(), r.c.AlarmStatus.IsConfirmedAlarm())).ToList());
     }
 
     //---------------------------------------------------------------------------//
@@ -96,7 +96,7 @@ public class CompressorsController(AppDbContext db) : ControllerBase
 
         return Ok(new CompressorDto(
             compressor.Id, compressor.SequenceNo, compressor.IpAddress, compressor.MacAddress,
-            compressor.CommunicationStatus.ToString(), compressor.AlarmStatus != AlarmStatus.정상));
+            compressor.CommunicationStatus.ToString(), compressor.AlarmStatus.IsConfirmedAlarm()));
     }
 
     //---------------------------------------------------------------------------//

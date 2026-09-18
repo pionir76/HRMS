@@ -1,3 +1,4 @@
+using HRMS.Common;
 using System.Globalization;
 using HRMS.Infrastructure;
 using HRMS.Modules.Communication.Models;
@@ -6,9 +7,6 @@ using HRMS.Modules.OperationReport.Models;
 // "Equipment"가 클래스명이자 형제 네임스페이스(HRMS.Modules.Equipment)라 컴파일러가 헷갈려해서 별칭을 둔다.
 using EquipmentEntity = HRMS.Modules.Equipment.Models.Equipment;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 
 namespace HRMS.Modules.OperationReport;
 
@@ -31,7 +29,6 @@ public class OperationAutoFillService(
     IServiceScopeFactory scopeFactory,
     ILogger<OperationAutoFillService> logger) : BackgroundService
 {
-    private static readonly TimeSpan KstOffset = TimeSpan.FromHours(9);
     private static readonly TimeSpan[] TriggerTimes =
         [TimeSpan.FromHours(9), TimeSpan.FromHours(13), TimeSpan.FromHours(16), TimeSpan.FromHours(21)];
 
@@ -50,7 +47,7 @@ public class OperationAutoFillService(
         while (!stoppingToken.IsCancellationRequested)
         {
             var nowUtc = DateTimeOffset.UtcNow;
-            var nowKst = nowUtc.ToOffset(KstOffset);
+            var nowKst = nowUtc.ToOffset(KoreanTime.Offset);
             var (nextTriggerKst, slotIndex) = GetNextTrigger(nowKst);
             var delay = nextTriggerKst - nowUtc;
             if (delay > TimeSpan.Zero)
@@ -73,7 +70,7 @@ public class OperationAutoFillService(
     //--------------------------------------------------------------------------------//
     private static (DateTimeOffset TriggerKst, int SlotIndex) GetNextTrigger(DateTimeOffset nowKst)
     {
-        var todayMidnight = new DateTimeOffset(nowKst.Date, KstOffset);
+        var todayMidnight = new DateTimeOffset(nowKst.Date, KoreanTime.Offset);
         for (int i = 0; i < TriggerTimes.Length; i++)
         {
             var candidate = todayMidnight + TriggerTimes[i];

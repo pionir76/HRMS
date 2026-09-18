@@ -1,3 +1,4 @@
+using HRMS.Common;
 using HRMS.Infrastructure;
 using HRMS.Modules.Alarm;
 using HRMS.Modules.Alarm.Models;
@@ -8,10 +9,6 @@ using HRMS.Modules.Equipment.Models;
 using HRMS.Modules.Logging;
 using HRMS.Modules.Logging.Models;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 
 namespace HRMS.Modules.Communication;
 
@@ -53,9 +50,6 @@ public class CompressorPollingService(
     // 잡으면 이벤트가 너무 잦아지는 걸 막기 위한 디바운스 목적이다.
     //--------------------------------------------------------------------------------//
     private static readonly TimeSpan CommunicationFailureAlarmDelay = TimeSpan.FromSeconds(30);
-
-    // "하루가 시작되는데 여전히 끊긴 상태면 값을 0으로" 판정의 기준 시간대(한국 시간).
-    private static readonly TimeSpan KstOffset = TimeSpan.FromHours(9);
 
     //--------------------------------------------------------------------------------//
     // 수집 대상 압축기 조회. **장비 상태가 `운영`인 장비의 압축기만** 수집한다(overview.md 4.1,
@@ -205,14 +199,19 @@ public class CompressorPollingService(
         await ResetStaleValuesAtDayStartAsync(db, results.Where(r => !r.Ok).Select(r => r.Id), stoppingToken);
 
         //--------------------------------------------------------------------------------//
-        // DB에 갱신된 통신상태·채널값·경보상태를 저장하고, 장비 단위로 집계한다.
+        // 갱신된 통신상태·채널값을 저장하고, 경보 판정보다 먼저 장비 운전 여부를 정한다
+        // (경보 판정이 이번 사이클의 운전 여부를 봐야 하므로 — EvaluateAlarmsAsync 참고).
         //--------------------------------------------------------------------------------//
+        await db.SaveChangesAsync(stoppingToken);
+        await EquipmentStatusAggregator.UpdateRunningAsync(db, stoppingToken);
+
+        await EvaluateAlarmsAsync(db, compressors, results.Where(r => r.Ok).Select(r => r.Id), stoppingToken);
         await db.SaveChangesAsync(stoppingToken);
 
         //--------------------------------------------------------------------------------//
-        //  장비 상태 갱신
+        //  압축기/장비 단위 경보·통신 상태 집계
         //--------------------------------------------------------------------------------//
-        await EquipmentStatusAggregator.UpdateAsync(db, stoppingToken);
+        await EquipmentStatusAggregator.UpdateAlarmAndCommunicationAsync(db, stoppingToken);
 
         Interlocked.Exchange(ref lastCycleCompletedTicks, DateTimeOffset.UtcNow.UtcTicks);
     }
@@ -247,11 +246,64 @@ public class CompressorPollingService(
             return (short)Math.Clamp(value, -200, 1200);
         })];
 
-    //--------------------------------------------------------------------------------//    
-    // CH01~CH07 7개 채널의 최신값을 갱신하고, 채널별 경보 상태까지 같이 판정한다.
+    //--------------------------------------------------------------------------------//
+    // 채널별 경보 판정. 값 저장과 장비 운전 판정(UpdateRunningAsync)이 끝난 뒤에 호출된다.
+    //
+    // **장비가 운전 중이 아니면 경보 판정을 하지 않는다**(사용자 결정 2026-09-17). 그 장비에 속한
+    // 모든 압축기의 모든 채널을 무조건 `정상`으로 두고(대기 타이머도 초기화), 경보 이벤트도 남기지
+    // 않는다 — 압축기 1번이 경보발생 상태였더라도 장비가 정지하면 즉시 정상이 된다. 발생 이벤트만
+    // 있고 해제 이벤트가 없는 경보가 생길 수 있는데, 이는 사양상 의도된 것이다.
+    // 설정상 경보비활성화인 채널도 비운전 중에는 `정상`으로 표시된다("무조건 정상").
+    //
+    // 운전 중인 장비는 기존대로 판정하되, 이번 사이클에 통신에 실패한 압축기는 값이 갱신되지 않았으므로
+    // 판정하지 않고 직전 상태를 유지한다(예전과 동일한 동작).
+    // 통신 장애 경보(HasCommunicationAlarm)는 이 규칙과 무관하다 — 통신이 끊기면 운전 판정도 정지가
+    // 되므로, 여기에 묶으면 통신 장애 경보가 절대 안 뜨게 된다.
+    //--------------------------------------------------------------------------------//
+    private static async Task EvaluateAlarmsAsync(
+        AppDbContext db, List<Compressor> compressors, IEnumerable<int> successfulIds, CancellationToken stoppingToken)
+    {
+        var compressorsById = compressors.ToDictionary(c => c.Id);
+        var targetIds = compressorsById.Keys.ToList();
+        var succeeded = successfulIds.ToHashSet();
+
+        var runningEquipmentIds = (await db.Equipments
+            .Where(e => e.IsRunning)
+            .Select(e => e.Id)
+            .ToListAsync(stoppingToken)).ToHashSet();
+
+        var currents = await db.CompressorSensorCurrents
+            .Where(s => targetIds.Contains(s.CompressorId))
+            .ToListAsync(stoppingToken);
+
+        var settings = await db.CompressorChannelSettings
+            .Where(s => targetIds.Contains(s.CompressorId))
+            .ToDictionaryAsync(s => (s.CompressorId, s.ChannelNo), stoppingToken);
+
+        var now = DateTimeOffset.UtcNow;
+        foreach (var current in currents)
+        {
+            if (!runningEquipmentIds.Contains(compressorsById[current.CompressorId].EquipmentId))
+            {
+                current.AlarmStatus = AlarmStatus.정상;
+                current.PendingSince = null;
+                continue;
+            }
+
+            if (!succeeded.Contains(current.CompressorId)) continue;
+            if (!settings.TryGetValue((current.CompressorId, current.ChannelNo), out var setting)) continue;
+
+            var previousAlarmStatus = current.AlarmStatus;
+            AlarmEvaluator.Evaluate(current, setting, now);
+            await LogAlarmTransitionIfNeededAsync(db, current.CompressorId, current.ChannelNo, setting,
+                previousAlarmStatus, current.AlarmStatus, current.Value);
+        }
+    }
+
+    //--------------------------------------------------------------------------------//
+    // CH01~CH07 7개 채널의 최신값을 갱신한다(경보 판정은 EvaluateAlarmsAsync에서 따로 한다).
     // 채널 사용 여부(Enabled)와 무관하게 원시값은 항상 저장한다
-    // (overview.md 4.6의 "경보를 꺼도 데이터 수집은 계속한다" 원칙과 동일하게 적용. 경보 판정 자체는
-    //  AlarmEvaluator가 Enabled/AlarmEnabled를 보고 알아서 "경보비활성화"로 처리한다).
+    // (overview.md 4.6의 "경보를 꺼도 데이터 수집은 계속한다" 원칙과 동일하게 적용).
     // CompressorSensorCurrent는 압축기·채널당 정확히 1행만 유지하는 최신값 테이블이라, 이 메서드는
     // 누적 INSERT가 아니라 있으면 갱신(UPDATE)·없으면 최초 1회 생성(INSERT)하는 UPSERT로 동작한다.
     //--------------------------------------------------------------------------------//
@@ -271,8 +323,8 @@ public class CompressorPollingService(
         var failedIds = failedCompressorIds.ToList();
         if (failedIds.Count == 0) return;
 
-        var kstToday = DateTimeOffset.UtcNow.ToOffset(KstOffset).Date;
-        var todayStartUtc = new DateTimeOffset(kstToday, KstOffset).ToUniversalTime();
+        var kstToday = DateTimeOffset.UtcNow.ToOffset(KoreanTime.Offset).Date;
+        var todayStartUtc = new DateTimeOffset(kstToday, KoreanTime.Offset).ToUniversalTime();
 
         var stale = await db.CompressorSensorCurrents
             .Where(s => failedIds.Contains(s.CompressorId) && s.MeasuredAt < todayStartUtc && s.Value != 0)
@@ -292,10 +344,6 @@ public class CompressorPollingService(
         if (successfulIds.Count == 0) return;
 
         var existingCurrents = await db.CompressorSensorCurrents
-            .Where(s => successfulIds.Contains(s.CompressorId))
-            .ToDictionaryAsync(s => (s.CompressorId, s.ChannelNo), stoppingToken);
-
-        var settings = await db.CompressorChannelSettings
             .Where(s => successfulIds.Contains(s.CompressorId))
             .ToDictionaryAsync(s => (s.CompressorId, s.ChannelNo), stoppingToken);
 
@@ -326,13 +374,6 @@ public class CompressorPollingService(
 
                 current.Value = r.Values[i];
                 current.MeasuredAt = now;
-
-                if (settings.TryGetValue((r.Id, channelNo), out var setting))
-                {
-                    var previousAlarmStatus = current.AlarmStatus;
-                    AlarmEvaluator.Evaluate(current, setting, now);
-                    await LogAlarmTransitionIfNeededAsync(db, r.Id, channelNo, setting, previousAlarmStatus, current.AlarmStatus, current.Value);
-                }
             }
         }
     }

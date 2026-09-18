@@ -4,9 +4,6 @@ using HRMS.Modules.Communication.Models;
 using HRMS.Modules.Equipment.Models;
 using HRMS.Modules.Trend.Models;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 
 namespace HRMS.Modules.Trend;
 
@@ -93,7 +90,7 @@ public class TrendRecordingService(
                 Ch06 = GetValue(channels, ChannelNo.CH06),
                 Ch07 = GetValue(channels, ChannelNo.CH07),
                 IsRunning = c.IsRunning,
-                HasAlarm = c.AlarmStatus != AlarmStatus.정상,
+                HasAlarm = c.AlarmStatus.IsConfirmedAlarm(),
                 IsConnected = c.CommunicationStatus == CommunicationStatus.연결됨
             });
         }

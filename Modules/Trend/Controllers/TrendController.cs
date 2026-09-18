@@ -1,3 +1,4 @@
+using HRMS.Common;
 using HRMS.Infrastructure;
 using HRMS.Modules.Trend.Models;
 using Microsoft.AspNetCore.Authorization;
@@ -11,7 +12,6 @@ namespace HRMS.Modules.Trend.Controllers;
 [Authorize]
 public class TrendController(AppDbContext db) : ControllerBase
 {
-    private static readonly TimeSpan KstOffset = TimeSpan.FromHours(9);
 
     //--------------------------------------------------------------------------------//
     // GET api/compressors/{id}/trend?date=2026-08-26 — date 생략 시 오늘(한국 시간) 기준.
@@ -23,14 +23,14 @@ public class TrendController(AppDbContext db) : ControllerBase
         if (await db.Compressors.FindAsync(compressorId) is null)
             return NotFound();
 
-        var day = date ?? DateOnly.FromDateTime(DateTimeOffset.UtcNow.ToOffset(KstOffset).Date);
+        var day = date ?? DateOnly.FromDateTime(DateTimeOffset.UtcNow.ToOffset(KoreanTime.Offset).Date);
 
         //--------------------------------------------------------------------------------//
         // 한국 시간 기준 하루(day 00:00 ~ 다음날 00:00)를 UTC로 변환해서 조회한다.
         // Npgsql은 timestamptz 비교 파라미터도 UTC(offset 0)만 받으므로 ToUniversalTime()이 필요하다
         // (TrendRecordingService에서 저장할 때 겪었던 것과 같은 종류의 제약).
         //--------------------------------------------------------------------------------//
-        var start = new DateTimeOffset(day.ToDateTime(TimeOnly.MinValue), KstOffset).ToUniversalTime();
+        var start = new DateTimeOffset(day.ToDateTime(TimeOnly.MinValue), KoreanTime.Offset).ToUniversalTime();
         var end = start.AddDays(1);
 
         var entities = await db.CompressorMeasurements

@@ -1,3 +1,4 @@
+using HRMS.Common;
 using HRMS.Infrastructure;
 using HRMS.Modules.Logging.Models;
 using Microsoft.AspNetCore.Authorization;
@@ -21,7 +22,6 @@ namespace HRMS.Modules.Logging.Controllers;
 [Authorize]
 public class EquipmentEventsController(AppDbContext db) : ControllerBase
 {
-    private static readonly TimeSpan KstOffset = TimeSpan.FromHours(9);
 
     //-----------------------------------------------------------------------------//
     // GET api/equipments/{id}/events?date=2026-09-16&category=Alarm
@@ -47,8 +47,8 @@ public class EquipmentEventsController(AppDbContext db) : ControllerBase
 
         // 한국 시간 기준 하루를 UTC 범위로 바꿔서 조회한다 — Npgsql은 timestamptz 비교
         // 파라미터도 UTC(offset 0)만 받는다(TrendController/UtilizationController와 동일).
-        var day = date ?? DateOnly.FromDateTime(DateTimeOffset.UtcNow.ToOffset(KstOffset).Date);
-        var start = new DateTimeOffset(day.ToDateTime(TimeOnly.MinValue), KstOffset).ToUniversalTime();
+        var day = date ?? DateOnly.FromDateTime(DateTimeOffset.UtcNow.ToOffset(KoreanTime.Offset).Date);
+        var start = new DateTimeOffset(day.ToDateTime(TimeOnly.MinValue), KoreanTime.Offset).ToUniversalTime();
         var end = start.AddDays(1);
 
         var query = db.EventLogs.Where(e => e.EquipmentId == equipmentId && e.CreatedAt >= start && e.CreatedAt < end);

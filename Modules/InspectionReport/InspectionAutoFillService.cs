@@ -1,9 +1,7 @@
+using HRMS.Common;
 using HRMS.Infrastructure;
 using HRMS.Modules.InspectionReport.Models;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 
 namespace HRMS.Modules.InspectionReport;
 
@@ -24,15 +22,14 @@ public class InspectionAutoFillService(
     IServiceScopeFactory scopeFactory,
     ILogger<InspectionAutoFillService> logger) : BackgroundService
 {
-    private static readonly TimeSpan KstOffset = TimeSpan.FromHours(9);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
         {
             var nowUtc = DateTimeOffset.UtcNow;
-            var nowKst = nowUtc.ToOffset(KstOffset);
-            var nextMidnightKst = new DateTimeOffset(nowKst.Date, KstOffset).AddDays(1);
+            var nowKst = nowUtc.ToOffset(KoreanTime.Offset);
+            var nextMidnightKst = new DateTimeOffset(nowKst.Date, KoreanTime.Offset).AddDays(1);
             var delay = nextMidnightKst - nowUtc;
             if (delay > TimeSpan.Zero)
                 await Task.Delay(delay, stoppingToken);

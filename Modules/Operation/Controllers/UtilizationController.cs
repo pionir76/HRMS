@@ -1,3 +1,4 @@
+using HRMS.Common;
 using HRMS.Infrastructure;
 using HRMS.Modules.Operation.Models;
 using Microsoft.AspNetCore.Authorization;
@@ -11,7 +12,6 @@ namespace HRMS.Modules.Operation.Controllers;
 [Authorize]
 public class UtilizationController(AppDbContext db) : ControllerBase
 {
-    private static readonly TimeSpan KstOffset = TimeSpan.FromHours(9);
 
     // GET api/equipments/{id}/utilization?from=2026-08-01&to=2026-08-31
     // from/to는 한국 시간 기준 날짜(둘 다 포함)다. to 생략 시 from과 동일한 하루, 둘 다 생략 시 오늘.
@@ -21,7 +21,7 @@ public class UtilizationController(AppDbContext db) : ControllerBase
         if (await db.Equipments.FindAsync(equipmentId) is null)
             return NotFound();
 
-        var today = DateOnly.FromDateTime(DateTimeOffset.UtcNow.ToOffset(KstOffset).Date);
+        var today = DateOnly.FromDateTime(DateTimeOffset.UtcNow.ToOffset(KoreanTime.Offset).Date);
         var fromDate = from ?? today;
         var toDate = to ?? fromDate;
 
@@ -39,8 +39,8 @@ public class UtilizationController(AppDbContext db) : ControllerBase
 
         // 한국 시간 기준 날짜 범위를 UTC로 변환한다 (TrendController와 동일한 이유:
         // Npgsql은 timestamptz 비교 파라미터로 UTC(offset 0)만 받는다).
-        var start = new DateTimeOffset(fromDate.ToDateTime(TimeOnly.MinValue), KstOffset).ToUniversalTime();
-        var end = new DateTimeOffset(toDate.ToDateTime(TimeOnly.MinValue), KstOffset).ToUniversalTime().AddDays(1);
+        var start = new DateTimeOffset(fromDate.ToDateTime(TimeOnly.MinValue), KoreanTime.Offset).ToUniversalTime();
+        var end = new DateTimeOffset(toDate.ToDateTime(TimeOnly.MinValue), KoreanTime.Offset).ToUniversalTime().AddDays(1);
 
         var totalMinutes = await db.CompressorMeasurements
             .Where(m => m.CompressorId == compressorId && m.MeasuredAt >= start && m.MeasuredAt < end)

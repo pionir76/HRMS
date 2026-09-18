@@ -1,6 +1,6 @@
 # InspectionReport 모듈
 
-점검일지 모듈. Front_Work.md 9번 화면(점검일지)에 대응한다. 원래는 `Modules/Reports`라는 하나의 모듈이 문서류 전체를 다룰 예정이었으나, 문서유형마다 필드·결재·자동화 구조가 상당히 달라서 전부 전용 모듈로 분리했다(운전일지 `Modules/OperationReport`, 장비 검사이력 `Modules/EquipmentInspectionHistory`, 수리일지 `Modules/RepairLog`, 교육훈련 일지 `Modules/TrainingLog`, 공지사항 `Modules/Notice`). 그 결과 빈 껍데기만 남은 `Modules/Reports`는 2026-09-16에 삭제됐다.
+점검일지 모듈. 프론트의 점검일지 화면에 대응한다. 원래는 `Modules/Reports`라는 하나의 모듈이 문서류 전체를 다룰 예정이었으나, 문서유형마다 필드·결재·자동화 구조가 상당히 달라서 전부 전용 모듈로 분리했다(운전일지 `Modules/OperationReport`, 장비 검사이력 `Modules/EquipmentInspectionHistory`, 수리일지 `Modules/RepairLog`, 교육훈련 일지 `Modules/TrainingLog`, 공지사항 `Modules/Notice`). 그 결과 빈 껍데기만 남은 `Modules/Reports`는 2026-09-16에 삭제됐다.
 
 - 점검일지 1건 = 장비 1개 + 주(일~토) 1개
 - 점검항목 10개(고정 양식, `InspectionItemCatalog`) × 요일별 결과(O/`/`/X) + 항목별 비고
