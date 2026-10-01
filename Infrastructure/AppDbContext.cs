@@ -48,7 +48,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     {
         //--------------------------------------------------------------------------------//
         // 압축기 시드 데이터가 "시설동명+장비명칭" 텍스트로 소속 장비를 가리키기 때문에
-        // 이 조합이 유니크해야 안전하게 매칭된다 (Infrastructure/Seed/compressor_seed.sql 참고).
+        // 같은 시설동에 동명 장비를 만들 수 없게 하는 제약이다 (Doc/overview.md 4.1).
         //--------------------------------------------------------------------------------//
         modelBuilder.Entity<Equipment>()
             .HasIndex(e => new { e.BuildingName, e.Name })
@@ -187,5 +187,19 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         // TrainingLog(교육훈련 일지)와 Notice(공지사항)는 여기 설정이 없다 — 장비에 매달리지
         // 않는 전사 문서라 FK가 없고, 조회도 "전체를 정렬해서 반환"뿐이라 인덱스를 둘 필요가
         // 없다(빠뜨린 게 아님).
+
+        //--------------------------------------------------------------------------------//
+        // EventLog — 계속 쌓이기만 하는 대용량 테이블이라 조회 경로에 인덱스가 필요하다
+        // (2026-09-28 추가. 그 전에는 PK뿐이라 아래 두 쿼리가 풀스캔 + 정렬이었다).
+        //   - CreatedAt: 실시간 피드(GET /api/events?since=)가 주기적으로 호출한다
+        //   - (EquipmentId, CreatedAt): 자료조회의 장비별 하루치 이벤트(GET /api/equipments/{id}/events)
+        // EquipmentId/CompressorId에 FK는 의도적으로 두지 않는다 — 장비가 철거되어도 그 장비의
+        // 경보/통신 이력은 감사 기록으로 남아야 하기 때문이다.
+        //--------------------------------------------------------------------------------//
+        modelBuilder.Entity<EventLog>(b =>
+        {
+            b.HasIndex(x => x.CreatedAt);
+            b.HasIndex(x => new { x.EquipmentId, x.CreatedAt });
+        });
     }
 }

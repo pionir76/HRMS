@@ -1,3 +1,4 @@
+using HRMS.Modules.Equipment;
 using HRMS.Modules.Auth;
 using System.Security.Claims;
 using HRMS.Infrastructure;
@@ -22,9 +23,7 @@ namespace HRMS.Modules.OperationReport.Controllers;
 [Authorize]
 public class OperationLogsController(AppDbContext db) : ControllerBase
 {
-    private const ApprovalLevelMode Level1Mode = ApprovalLevelMode.Required;
-    private const ApprovalLevelMode Level2Mode = ApprovalLevelMode.Required;
-    private const ApprovalLevelMode Level3Mode = ApprovalLevelMode.Required;
+    private static readonly ApprovalLevelModes Modes = ApprovalDocuments.ModesFor(ApprovalDocumentType.OperationLog);
 
     //--------------------------------------------------------------------------------//
     // GET api/operation-logs?equipmentId=1&date=2026-11-05 — 저장된 적 없는 날짜면
@@ -54,6 +53,13 @@ public class OperationLogsController(AppDbContext db) : ControllerBase
     {
         if (await db.Equipments.FindAsync(request.EquipmentId) is null)
             return NotFound();
+
+        //--------------------------------------------------------------------------------//
+        // 그 장비의 담당자(UserEquipment) 또는 시스템관리자만 저장할 수 있다(2026-09-28 추가).
+        // 점검일지와 같은 기준 — 이 PUT도 전체 교체라 남의 장비 일지를 통째로 날릴 수 있었다.
+        //--------------------------------------------------------------------------------//
+        if (!await EquipmentAccess.CanManageAsync(db, User, request.EquipmentId))
+            return Forbid();
 
         var log = await db.OperationLogs
             .Include(l => l.Items)
@@ -94,7 +100,7 @@ public class OperationLogsController(AppDbContext db) : ControllerBase
     [HttpPost("{id}/approve")]
     public async Task<ActionResult<OperationLogDto>> Approve(int id)
     {
-        var log = await db.OperationLogs.FindAsync(id);
+        var log = await FindWithValuesAsync(id);
         if (log is null)
             return NotFound();
 
@@ -107,13 +113,11 @@ public class OperationLogsController(AppDbContext db) : ControllerBase
         if (!await db.UserEquipments.AnyAsync(ue => ue.UserId == userId && ue.EquipmentId == log.EquipmentId))
             return Forbid();
 
-        var (mode, _, _, approvedAt) = GetLevel(log, level);
-        var previousSatisfied = level == 1 || IsLevelSatisfied(log, level - 1);
-        if (!ApprovalRules.CanApprove(mode, approvedAt, previousSatisfied))
+        if (!ApprovalLevels.CanApprove(log, Modes, level))
             return Conflict("지금은 이 단계를 승인할 수 없습니다(이미 승인됨, 또는 이전 단계 미완료).");
 
         var user = await db.Users.FindAsync(userId);
-        SetLevel(log, level, userId, user!.FullName, DateTimeOffset.UtcNow);
+        ApprovalLevels.Set(log, level, userId, user!.FullName, DateTimeOffset.UtcNow);
         await db.SaveChangesAsync();
 
         await EventLogger.LogAsync(db, EventLogCategory.Approval,
@@ -130,7 +134,7 @@ public class OperationLogsController(AppDbContext db) : ControllerBase
     [HttpPost("{id}/approve/cancel")]
     public async Task<ActionResult<OperationLogDto>> CancelApprove(int id)
     {
-        var log = await db.OperationLogs.FindAsync(id);
+        var log = await FindWithValuesAsync(id);
         if (log is null)
             return NotFound();
 
@@ -140,15 +144,14 @@ public class OperationLogsController(AppDbContext db) : ControllerBase
         if (ApprovalRules.LevelForRole(role) is not { } level)
             return Forbid();
 
-        var (_, approverId, approverName, approvedAt) = GetLevel(log, level);
+        var (approverId, approverName, _) = ApprovalLevels.Get(log, level);
         if (approverId != userId)
             return Forbid();
 
-        var nextSatisfied = level < 3 && IsLevelSatisfied(log, level + 1);
-        if (!ApprovalRules.CanCancel(approvedAt, nextSatisfied))
+        if (!ApprovalLevels.CanCancel(log, Modes, level))
             return Conflict("상위 단계가 이미 승인되어 취소할 수 없습니다.");
 
-        SetLevel(log, level, null, null, null);
+        ApprovalLevels.Set(log, level, null, null, null);
         await db.SaveChangesAsync();
 
         await EventLogger.LogAsync(db, EventLogCategory.Approval,
@@ -166,13 +169,11 @@ public class OperationLogsController(AppDbContext db) : ControllerBase
     [HttpPost("{id}/approvals/reset")]
     public async Task<ActionResult<OperationLogDto>> ResetApprovals(int id)
     {
-        var log = await db.OperationLogs.FindAsync(id);
+        var log = await FindWithValuesAsync(id);
         if (log is null)
             return NotFound();
 
-        log.Level1ApproverId = null; log.Level1ApproverName = null; log.Level1ApprovedAt = null;
-        log.Level2ApproverId = null; log.Level2ApproverName = null; log.Level2ApprovedAt = null;
-        log.Level3ApproverId = null; log.Level3ApproverName = null; log.Level3ApprovedAt = null;
+        ApprovalLevels.Reset(log);
         await db.SaveChangesAsync();
 
         await EventLogger.LogAsync(db, EventLogCategory.Approval,
@@ -184,35 +185,22 @@ public class OperationLogsController(AppDbContext db) : ControllerBase
 
     private bool TryGetCurrentUser(out int userId, out UserRole role) => User.TryGetUser(out userId, out role);
 
-    private static (ApprovalLevelMode Mode, int? ApproverId, string? ApproverName, DateTimeOffset? ApprovedAt) GetLevel(OperationLog log, int level) => level switch
-    {
-        1 => (Level1Mode, log.Level1ApproverId, log.Level1ApproverName, log.Level1ApprovedAt),
-        2 => (Level2Mode, log.Level2ApproverId, log.Level2ApproverName, log.Level2ApprovedAt),
-        3 => (Level3Mode, log.Level3ApproverId, log.Level3ApproverName, log.Level3ApprovedAt),
-        _ => throw new ArgumentOutOfRangeException(nameof(level))
-    };
-
-    private static bool IsLevelSatisfied(OperationLog log, int level)
-    {
-        var (mode, _, _, approvedAt) = GetLevel(log, level);
-        return ApprovalRules.IsSatisfied(mode, approvedAt);
-    }
-
-    private static void SetLevel(OperationLog log, int level, int? approverId, string? approverName, DateTimeOffset? approvedAt)
-    {
-        switch (level)
-        {
-            case 1: log.Level1ApproverId = approverId; log.Level1ApproverName = approverName; log.Level1ApprovedAt = approvedAt; break;
-            case 2: log.Level2ApproverId = approverId; log.Level2ApproverName = approverName; log.Level2ApprovedAt = approvedAt; break;
-            case 3: log.Level3ApproverId = approverId; log.Level3ApproverName = approverName; log.Level3ApprovedAt = approvedAt; break;
-        }
-    }
+    //--------------------------------------------------------------------------------//
+    // 결재·결재취소·결재초기화도 응답으로 문서 전체(ToDto)를 돌려주므로, 조회(GET)와 똑같이
+    // 입력값(Items)과 참고값(References)을 함께 읽어야 한다. FindAsync만 쓰던 때는 결재 응답의
+    // 값이 전부 비어 왔다(2026-09-29 점검일지에서 제보된 것과 같은 버그 — DB 값은 멀쩡했다).
+    //--------------------------------------------------------------------------------//
+    private Task<OperationLog?> FindWithValuesAsync(int id) =>
+        db.OperationLogs
+            .Include(l => l.Items)
+            .Include(l => l.References)
+            .FirstOrDefaultAsync(l => l.Id == id);
 
     private static OperationLogDto ToDto(OperationLog? log, int equipmentId, DateOnly date) => new(
         log?.Id, equipmentId, date,
-        ApprovalRules.ToDto(Level1Mode, log?.Level1ApproverName, log?.Level1ApprovedAt),
-        ApprovalRules.ToDto(Level2Mode, log?.Level2ApproverName, log?.Level2ApprovedAt),
-        ApprovalRules.ToDto(Level3Mode, log?.Level3ApproverName, log?.Level3ApprovedAt),
+        ApprovalRules.ToDto(Modes[1], log?.Level1ApproverName, log?.Level1ApprovedAt),
+        ApprovalRules.ToDto(Modes[2], log?.Level2ApproverName, log?.Level2ApprovedAt),
+        ApprovalRules.ToDto(Modes[3], log?.Level3ApproverName, log?.Level3ApprovedAt),
         (log?.Items ?? []).Select(i => new OperationItemDto(i.ItemKey, i.CompressorId, i.Time0900, i.Time1300, i.Time1600, i.Time2100)).ToList(),
         (log?.References ?? []).Select(r => new OperationReferenceDto(r.ItemKey, r.ReferenceText)).ToList());
 }

@@ -67,6 +67,29 @@ public class CompressorPollingService(
         return testMode ? query : query.Where(c => c.IpAddress != null);
     }
 
+    //--------------------------------------------------------------------------------//
+    // 압축기별 CH01~CH07 레지스터 주소를 채널 설정에서 읽어 배열로 만든다(인덱스 0=CH01).
+    // 채널 설정 행이 없거나 주소가 비어 있으면 null — 그 채널은 센서가 없는 것으로 본다.
+    //--------------------------------------------------------------------------------//
+    private static async Task<Dictionary<int, int?[]>> LoadChannelRegistersAsync(
+        AppDbContext db, IEnumerable<int> compressorIds, CancellationToken stoppingToken)
+    {
+        var ids = compressorIds.ToList();
+        var settings = await db.CompressorChannelSettings
+            .Where(s => ids.Contains(s.CompressorId))
+            .Select(s => new { s.CompressorId, s.ChannelNo, s.RegisterAddress })
+            .ToListAsync(stoppingToken);
+
+        var map = ids.ToDictionary(id => id, _ => new int?[PcLinkClient.ChannelCount]);
+        foreach (var s in settings)
+        {
+            int index = (int)s.ChannelNo - 1;
+            if (index >= 0 && index < PcLinkClient.ChannelCount)
+                map[s.CompressorId][index] = s.RegisterAddress;
+        }
+        return map;
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
@@ -75,10 +98,14 @@ public class CompressorPollingService(
             {
                 await PollOnceAsync(stoppingToken);
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break; // 앱 종료 — 정상 경로라 에러로 남기지 않는다
+            }
             catch (Exception ex)
             {
                 //--------------------------------------------------------------------------------//
-                // 한 사이클 전체가 실패해도(예: DB 순단) 
+                // 한 사이클 전체가 실패해도(예: DB 순단)
                 // 서비스 자체는 죽지 않고 다음 사이클을 계속 시도한다.
                 //--------------------------------------------------------------------------------//
                 logger.LogError(ex, "압축기 폴링 중 오류 발생");
@@ -91,10 +118,17 @@ public class CompressorPollingService(
     private async Task PollOnceAsync(CancellationToken stoppingToken)
     {
         //--------------------------------------------------------------------------------//
-        // 테스트 모드: 실제 TCP 통신 없이 전 압축기가 정상 통신하는 것으로 가정하고 랜덤값을 채운다.
+        // 테스트 모드: 실제 TCP 통신 없이 전 압축기가 정상 통신하는 것으로 가정하고 모의값을 채운다.
         // appsettings.*.json의 "Communication:TestMode"를 껐다 켰다 하고 앱을 재시작하면 된다.
+        // 테스트 모드여도 Communication:RealDeviceIps에 적힌 IP는 실제로 통신한다(CommunicationMode).
         //--------------------------------------------------------------------------------//
-        bool testMode = configuration.GetValue("Communication:TestMode", false);
+        bool testMode = CommunicationMode.IsTestMode(configuration);
+
+        //--------------------------------------------------------------------------------//
+        // 통신 타임아웃(ms). 기본 1.5초 — 사내 LAN이라 정상 응답은 수십 ms 수준이고, 이 값이
+        // 폴링 주기(3초)보다 길면 한 대만 응답이 없어도 사이클 전체가 늘어진다.
+        //--------------------------------------------------------------------------------//
+        int timeoutMs = configuration.GetValue("Communication:TimeoutMs", PcLinkClient.DefaultTimeoutMs);
 
         //--------------------------------------------------------------------------------//
         // BackgroundService는 싱글턴이라 DbContext(스코프드)를 직접 주입받을 수 없어서,
@@ -109,6 +143,13 @@ public class CompressorPollingService(
         var compressors = await CollectionTargets(db, testMode).ToListAsync(stoppingToken);
 
         //--------------------------------------------------------------------------------//
+        // 압축기별 CH01~CH07 레지스터 주소(채널 설정값). 표준 장비는 전부 같은 주소지만 LG 냉동기는
+        // 압축기마다 달라서 상수로 둘 수 없다(사양 확정 2026-09-18 — Doc/pclink protocol.md).
+        // 주소가 null인 채널은 센서가 없는 자리이므로 읽어도 값을 저장하지 않는다.
+        //--------------------------------------------------------------------------------//
+        var registersByCompressor = await LoadChannelRegistersAsync(db, compressors.Select(c => c.Id), stoppingToken);
+
+        //--------------------------------------------------------------------------------//
         // 압축기별로 독립적으로 통신하여, 한 대의 장애/지연이 다른 압축기 폴링에 영향을 주지 않도록 한다.
         // (DbContext는 스레드에 안전하지 않으므로 이 단계에서는 DB에 손대지 않고, 결과만 메모리에 모은다.)
         //--------------------------------------------------------------------------------//
@@ -120,29 +161,41 @@ public class CompressorPollingService(
             //--------------------------------------------------------------------------------//
             // 테스트 모드에서는 실제 TCP 통신 없이 전 압축기가 정상 통신하는 것으로 가정하고,
             // 시간에 따라 완만하게 변하는 모의값을 채운다(GenerateTestValues 주석 참고).
+            // RealDeviceIps에 있는 압축기만 예외로 아래 실제 통신 경로를 탄다.
             //--------------------------------------------------------------------------------//
-            if (testMode)
+            var reason = PcLinkClient.ReadFailureReason.없음;
+
+            if (CommunicationMode.IsSimulated(configuration, c.IpAddress))
             {
                 ok = true;
                 values = GenerateTestValues(c.Id);
             }
 
             //--------------------------------------------------------------------------------//
-            // Not test mode: 실제 TCP 통신으로 CH01~CH07 7개 채널값을 읽어온다.
+            // Not test mode: 실제 TCP 통신으로 CH01~CH07 + DIOSTS 8개 레지스터를 읽어온다.
+            // 8번째 값(D1805)은 비상정지 상태 판정에 쓴다(아래 갱신 루프 참고).
             //--------------------------------------------------------------------------------//
             else
             {
                 try
                 {
-                    (ok, values, _) = await PcLinkClient.ReadChannelsAsync(c.IpAddress!);
+                    var result = await PcLinkClient.ReadChannelsAsync(
+                        c.IpAddress!, registersByCompressor[c.Id], timeoutMs, stoppingToken);
+                    (ok, values, reason) = (result.Ok, result.Values, result.Reason);
                 }
-                catch
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    throw; // 앱 종료는 그대로 올려보낸다
+                }
+                catch (Exception ex)
                 {
                     ok = false;
                     values = [];
+                    reason = PcLinkClient.ReadFailureReason.연결실패;
+                    logger.LogDebug(ex, "압축기 {CompressorId} 통신 중 예외", c.Id);
                 }
             }
-            return (c.Id, PreviousStatus: c.CommunicationStatus, Ok: ok, Values: values);
+            return (c.Id, PreviousStatus: c.CommunicationStatus, Ok: ok, Values: values, Reason: reason);
         }));
 
         //--------------------------------------------------------------------------------//
@@ -151,9 +204,27 @@ public class CompressorPollingService(
         // 비동기 통신으로 전체 압축기에서 읽어온 결과를 모은 뒤, 통신상태·채널값·경보상태를 갱신하고 장비 단위로 집계한다.
         //--------------------------------------------------------------------------------//
         var now = DateTimeOffset.UtcNow;
-        foreach (var (id, previousStatus, ok, _) in results)
+        var compressorsById = compressors.ToDictionary(c => c.Id); // 246개 루프 안에서 선형 탐색하지 않도록
+
+        foreach (var (id, previousStatus, ok, values, reason) in results)
         {
-            var compressor = compressors.First(c => c.Id == id);
+            var compressor = compressorsById[id];
+
+            //--------------------------------------------------------------------------------//
+            // 비상정지 상태(D1805 != 0). 8번째 값이 실제로 왔을 때만 갱신한다 — 테스트 모드의
+            // 모의값은 센서 7개뿐이라 이 자리가 없고, 그때는 비상정지 API가 직접 넣은 상태를
+            // 폴링이 매 3초 덮어써 버리면 테스트 자체가 불가능해진다.
+            // 통신이 끊긴 사이클도 건드리지 않는다(마지막으로 확인된 상태를 유지 — Compressor 주석).
+            //--------------------------------------------------------------------------------//
+            if (ok && values.Length > PcLinkClient.ChannelCount)
+                compressor.IsEmergencyStopped = PcLinkClient.IsEmergencyStopped(values[PcLinkClient.ChannelCount]);
+
+            //--------------------------------------------------------------------------------//
+            // 막 끊긴 순간(연결됨 -> 실패)에만 사유를 남긴다. 매 사이클 남기면 전 압축기가
+            // 끊겼을 때 3초마다 수백 줄이 쌓인다. 사유는 아래 통신 장애 경보 메시지에도 들어간다.
+            //--------------------------------------------------------------------------------//
+            if (!ok && previousStatus == CommunicationStatus.연결됨)
+                logger.LogWarning("압축기 {CompressorId} 통신 실패: {Reason}", id, reason);
 
             //--------------------------------------------------------------------------------//
             // 성공하면 무조건 연결됨. 실패는 직전이 연결됨이었으면(막 끊긴 상태) 재접속중,
@@ -185,11 +256,11 @@ public class CompressorPollingService(
                 // 연결됨/끊김/재접속중 상태 전이 자체도 너무 잦아서 기록하지 않는다.
                 //--------------------------------------------------------------------------------//
                 if (!wasAlarm && compressor.HasCommunicationAlarm)
-                    await LogCommunicationAlarmAsync(db, compressor.Id);
+                    await LogCommunicationAlarmAsync(db, compressor.Id, reason);
             }
         }
 
-        await UpdateCurrentValuesAsync(db, results.Where(r => r.Ok), stoppingToken);
+        await UpdateCurrentValuesAsync(db, results.Where(r => r.Ok), registersByCompressor, stoppingToken);
 
         //--------------------------------------------------------------------------------//
         // 통신이 끊긴 압축기는 채널값을 건드리지 않아 직전 성공값이 그대로 유지된다(사양).
@@ -290,7 +361,27 @@ public class CompressorPollingService(
                 continue;
             }
 
-            if (!succeeded.Contains(current.CompressorId)) continue;
+            //--------------------------------------------------------------------------------//
+            // 통신이 끊긴 압축기의 경보는 해제한다(사용자 결정 2026-09-28).
+            // 값을 읽을 수 없는 동안에는 경보 여부를 알 수 없으므로 "모르면 경보 아님"으로 본다.
+            //
+            // 그 전에는 판정에서 그냥 건너뛰어(옛 상태 유지) 문제가 있었다: 압축기 2대짜리 장비에서
+            // 1번이 경보발생 상태로 끊기고 2번이 계속 운전 중이면, 장비는 운전 중이라 위의 "비운전
+            // 이면 전부 정상" 분기를 타지 않고, 끊긴 1번의 경보 상태가 그대로 얼어붙어 장비 경보로
+            // 무기한 집계됐다(해제 이벤트도 남지 않음).
+            //
+            // 해제 이벤트는 남기지 않는다 — 비운전 처리(2026-09-17)와 같은 원칙이다. 통신이 복구되면
+            // `정상`에서 다시 판정을 시작하므로, 값이 여전히 범위 밖이면 발생 지연시간을 다시 채운 뒤
+            // 경보가 확정된다(사용자 확인: 의도된 동작).
+            // 통신 두절 자체는 별도의 통신 장애 경보(HasCommunicationAlarm, 30초 지속 시)로 알린다.
+            //--------------------------------------------------------------------------------//
+            if (!succeeded.Contains(current.CompressorId))
+            {
+                current.AlarmStatus = AlarmStatus.정상;
+                current.PendingSince = null;
+                continue;
+            }
+
             if (!settings.TryGetValue((current.CompressorId, current.ChannelNo), out var setting)) continue;
 
             var previousAlarmStatus = current.AlarmStatus;
@@ -337,7 +428,8 @@ public class CompressorPollingService(
     //--------------------------------------------------------------------------------//
     private static async Task UpdateCurrentValuesAsync(
         AppDbContext db,
-        IEnumerable<(int Id, CommunicationStatus PreviousStatus, bool Ok, short[] Values)> successfulResults,
+        IEnumerable<(int Id, CommunicationStatus PreviousStatus, bool Ok, short[] Values, PcLinkClient.ReadFailureReason Reason)> successfulResults,
+        Dictionary<int, int?[]> registersByCompressor,
         CancellationToken stoppingToken)
     {
         var successfulIds = successfulResults.Select(r => r.Id).ToList();
@@ -351,16 +443,21 @@ public class CompressorPollingService(
         foreach (var r in successfulResults)
         {
             //--------------------------------------------------------------------------------//
-            // 방어적 체크: 정상 응답이면 항상 9개(그중 앞 7개 사용)
-            //--------------------------------------------------------------------------------//
-            if (r.Values.Length < 7) continue; 
+            if (r.Values.Length < 7) continue; // 방어적 체크: 정상 응답이면 항상 8개(그중 앞 7개 사용)
+
+            var registers = registersByCompressor[r.Id];
 
             for (int i = 0; i < 7; i++)
             {
                 //--------------------------------------------------------------------------------//
                 // PcLinkClient.ReadChannelsAsync에서 반환한 Values[0..6] = CH01..CH07 순서와 일치
                 //--------------------------------------------------------------------------------//
-                var channelNo = (ChannelNo)(i + 1); 
+                var channelNo = (ChannelNo)(i + 1);
+
+                //--------------------------------------------------------------------------------//
+                // 센서가 없는 채널(주소 없음)은 더미 주소를 읽은 자리라 값이 의미가 없다 — 저장하지 않는다.
+                //--------------------------------------------------------------------------------//
+                if (registers[i] is null) continue;
 
                 if (!existingCurrents.TryGetValue((r.Id, channelNo), out var current))
                 {
@@ -413,10 +510,16 @@ public class CompressorPollingService(
     //--------------------------------------------------------------------------------//
     // 통신 장애 경보는 켜지는 순간만 기록한다(복구는 기록 안 함, 사용자 결정).
     //--------------------------------------------------------------------------------//
-    private static async Task LogCommunicationAlarmAsync(AppDbContext db, int compressorId)
+    private static async Task LogCommunicationAlarmAsync(
+        AppDbContext db, int compressorId, PcLinkClient.ReadFailureReason reason)
     {
         var info = await GetCompressorContextAsync(db, compressorId);
-        var message = $"{info.Region} {info.BuildingName}의 {info.EquipmentName}의 압축기 {info.SequenceNo}번이 통신 장애 상태입니다.";
+
+        //--------------------------------------------------------------------------------//
+        // 사유를 메시지에 함께 남긴다(2026-09-28). 예전에는 모든 실패가 한 비트로 뭉개져서
+        // 현장에서 "왜 안 되는지"(전원/케이블 vs 프로토콜 이상)를 구분할 수 없었다.
+        //--------------------------------------------------------------------------------//
+        var message = $"{info.Region} {info.BuildingName}의 {info.EquipmentName}의 압축기 {info.SequenceNo}번이 통신 장애 상태입니다. (사유: {reason})";
 
         await EventLogger.LogAsync(db, EventLogCategory.Communication, message,
             equipmentId: info.EquipmentId, compressorId: compressorId);

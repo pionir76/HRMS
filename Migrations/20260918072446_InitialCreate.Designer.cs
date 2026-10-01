@@ -3,6 +3,7 @@ using System;
 using HRMS.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace HRMS.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260918072446_InitialCreate")]
+    partial class InitialCreate
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -176,9 +179,6 @@ namespace HRMS.Migrations
 
                     b.Property<string>("IpAddress")
                         .HasColumnType("text");
-
-                    b.Property<bool>("IsEmergencyStopped")
-                        .HasColumnType("boolean");
 
                     b.Property<string>("MacAddress")
                         .HasColumnType("text");
@@ -351,9 +351,6 @@ namespace HRMS.Migrations
                         .HasColumnType("boolean");
 
                     b.Property<bool>("HasVoltage")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("IsEmergencyStopped")
                         .HasColumnType("boolean");
 
                     b.Property<bool>("IsRunning")
@@ -618,10 +615,6 @@ namespace HRMS.Migrations
                         .HasColumnType("smallint");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("CreatedAt");
-
-                    b.HasIndex("EquipmentId", "CreatedAt");
 
                     b.ToTable("EventLogs");
                 });

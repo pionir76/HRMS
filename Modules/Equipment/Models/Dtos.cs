@@ -73,6 +73,7 @@ public record EquipmentDto(
     bool IsRunning,
     string CommunicationStatus,
     bool HasAlarm,
+    bool IsEmergencyStopped,
     bool HasEquipmentPhoto,
     bool HasInstallationPhoto);
 
@@ -147,7 +148,8 @@ public record SaveChannelSettingRequest(
     bool AlarmEnabled,
     int? AlarmDelaySeconds,
     int? AlarmClearDelaySeconds,
-    int DecimalPlaces);
+    int DecimalPlaces,
+    int? RegisterAddress);
 
 public record CompressorDto(
     int Id,
@@ -171,6 +173,7 @@ public record EquipmentStatusDto(
     bool IsRunning,
     string CommunicationStatus,
     bool HasAlarm,
+    bool IsEmergencyStopped,
     List<CompressorStatusDto> Compressors);
 
 public record CompressorStatusDto(
@@ -179,10 +182,23 @@ public record CompressorStatusDto(
     string CommunicationStatus,
     bool HasAlarm);
 
+//------------------------------------------------------------------------------//
 // 실시간 현황 화면 상단 카운트용 집계. GET /api/summary.
+//
+// TotalEquipmentCount/TotalCompressorCount는 이름과 달리 **운영 상태 장비 기준**이다
+// (2026-09-17 사양 — 운영이 아닌 장비는 실시간 현황에 노출하지 않는다). 프론트가 "등록된 전체"도
+// 같이 보여줘야 해서 Registered*Count와 EquipmentCountByStatus를 추가했다(프론트 요청 2026-09-18).
+// 그 전에는 미운영 대수 하나를 얻으려고 GET /api/equipments(약 180KB)를 30초마다 불러야 했다.
+//
+// EquipmentCountByStatus는 값이 0인 상태도 포함해 **EquipmentStatus 8개를 enum 정의 순서대로
+// 항상 다 내려준다** — 키가 있다가 없어지면 프론트가 방어 코드를 써야 하므로 모양을 고정했다.
+//------------------------------------------------------------------------------//
 public record SystemSummaryDto(
     int TotalEquipmentCount,
+    int RegisteredEquipmentCount,
+    Dictionary<string, int> EquipmentCountByStatus,
     int TotalCompressorCount,
+    int RegisteredCompressorCount,
     int RunningEquipmentCount,
     int CommunicationFailedCompressorCount);
 
@@ -222,4 +238,26 @@ public record ChannelSettingDto(
     bool AlarmEnabled,
     int? AlarmDelaySeconds,
     int? AlarmClearDelaySeconds,
-    int DecimalPlaces);
+    int DecimalPlaces,
+    int? RegisterAddress);
+
+//------------------------------------------------------------------------------//
+// 설정값 일괄 적용 요청/응답(api-manual 77·78번). 값 필드는 전부 선택이며, null(또는 생략)인
+// 항목은 바꾸지 않는다 — "상한만 일괄로 올리기"처럼 일부만 바꾸는 경우가 대부분이라서다.
+// 상·하한은 채널값과 같은 raw 스케일이다(소수점 변환은 프론트 담당).
+//------------------------------------------------------------------------------//
+public record BulkChannelSettingsRequest(
+    List<int>? EquipmentIds,
+    List<string>? ChannelNos,
+    short? LowerLimit,
+    short? UpperLimit,
+    bool? AlarmEnabled,
+    int? AlarmDelaySeconds,
+    int? AlarmClearDelaySeconds,
+    int? DecimalPlaces);
+
+public record BulkChannelSettingsResult(int EquipmentCount, int UpdatedChannelCount, int SkippedChannelCount);
+
+public record BulkRunningCurrentThresholdRequest(List<int>? EquipmentIds, short? RunningCurrentThreshold);
+
+public record BulkRunningCurrentThresholdResult(int UpdatedEquipmentCount);

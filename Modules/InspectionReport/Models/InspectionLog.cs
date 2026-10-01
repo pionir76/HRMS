@@ -1,3 +1,5 @@
+using HRMS.Modules.Approval;
+
 namespace HRMS.Modules.InspectionReport.Models;
 
 //--------------------------------------------------------------------------------//
@@ -6,7 +8,7 @@ namespace HRMS.Modules.InspectionReport.Models;
 // (Modules/Approval/README.md 참고). ApproverName은 승인 시점 이름 스냅샷이라, 나중에
 // 그 사용자의 이름이 바뀌거나 역할이 바뀌어도 이미 찍힌 결재 기록은 그대로 남는다.
 //--------------------------------------------------------------------------------//
-public class InspectionLog
+public class InspectionLog : IApprovable
 {
     public int Id { get; set; }
     public int EquipmentId { get; set; }

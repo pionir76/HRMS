@@ -1,3 +1,5 @@
+using HRMS.Modules.Approval;
+
 namespace HRMS.Modules.RepairLog.Models;
 
 //--------------------------------------------------------------------------------//
@@ -6,13 +8,13 @@ namespace HRMS.Modules.RepairLog.Models;
 //
 // 결재 데이터(Level1~3)는 별도 테이블 없이 여기에 인라인 컬럼으로 직접 둔다(점검일지/운전일지와
 // 동일한 방식 — Modules/Approval/README.md 참고). 이 문서유형은 Level1(안전관리원)이 "해당없음"
-// 이라 Level1 컬럼은 실제로 채워지지 않지만, 공용 결재 로직(GetLevel/SetLevel이 1~3을 그대로
+// 이라 Level1 컬럼은 실제로 채워지지 않지만, 공용 결재 로직(ApprovalLevels가 1~3을 그대로
 // 훑는다)과 스키마 모양을 다른 문서와 같게 유지하려고 컬럼 자체는 그대로 둔다.
 //
 // ApproverName/CreatedByUserName 등은 그 시점 이름 스냅샷이다 — 나중에 사용자 이름이나 역할이
 // 바뀌어도 이미 찍힌 기록은 그대로 남는다.
 //--------------------------------------------------------------------------------//
-public class RepairLog
+public class RepairLog : IApprovable
 {
     public int Id { get; set; }
     public int EquipmentId { get; set; } // 생성 후 변경 불가(PUT 요청에 포함하지 않음)

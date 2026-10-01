@@ -1,3 +1,5 @@
+using HRMS.Modules.Approval;
+
 namespace HRMS.Modules.TrainingLog.Models;
 
 //--------------------------------------------------------------------------------//
@@ -12,7 +14,7 @@ namespace HRMS.Modules.TrainingLog.Models;
 // 첨부파일은 이 엔티티가 직접 갖지 않고 Modules/Attachment(ownerType=TrainingLog,
 // ownerId=이 레코드의 Id)로 관리한다. 참석자 명단은 시스템 계정과 무관한 단순 문자열이다.
 //--------------------------------------------------------------------------------//
-public class TrainingLog
+public class TrainingLog : IApprovable
 {
     public int Id { get; set; }
 

@@ -38,9 +38,7 @@ namespace HRMS.Modules.RepairLog.Controllers;
 [Authorize]
 public class RepairLogsController(AppDbContext db) : ControllerBase
 {
-    private const ApprovalLevelMode Level1Mode = ApprovalLevelMode.NotApplicable;
-    private const ApprovalLevelMode Level2Mode = ApprovalLevelMode.Required;
-    private const ApprovalLevelMode Level3Mode = ApprovalLevelMode.Required;
+    private static readonly ApprovalLevelModes Modes = ApprovalDocuments.ModesFor(ApprovalDocumentType.RepairLog);
 
     // GET api/repair-logs?equipmentId= — 해당 장비의 수리일지 목록, 일시 내림차순(최신 먼저)
     [HttpGet]
@@ -176,13 +174,11 @@ public class RepairLogsController(AppDbContext db) : ControllerBase
         if (!await db.UserEquipments.AnyAsync(ue => ue.UserId == userId && ue.EquipmentId == log.EquipmentId))
             return Forbid();
 
-        var (mode, _, _, approvedAt) = GetLevel(log, level);
-        var previousSatisfied = level == 1 || IsLevelSatisfied(log, level - 1);
-        if (!ApprovalRules.CanApprove(mode, approvedAt, previousSatisfied))
+        if (!ApprovalLevels.CanApprove(log, Modes, level))
             return Conflict("지금은 이 단계를 승인할 수 없습니다(결재 대상이 아닌 단계이거나, 이미 승인됨, 또는 이전 단계 미완료).");
 
         var user = await db.Users.FindAsync(userId);
-        SetLevel(log, level, userId, user!.FullName, DateTimeOffset.UtcNow);
+        ApprovalLevels.Set(log, level, userId, user!.FullName, DateTimeOffset.UtcNow);
         await db.SaveChangesAsync();
 
         await EventLogger.LogAsync(db, EventLogCategory.Approval,
@@ -209,15 +205,14 @@ public class RepairLogsController(AppDbContext db) : ControllerBase
         if (ApprovalRules.LevelForRole(role) is not { } level)
             return Forbid();
 
-        var (_, approverId, approverName, approvedAt) = GetLevel(log, level);
+        var (approverId, approverName, _) = ApprovalLevels.Get(log, level);
         if (approverId != userId)
             return Forbid();
 
-        var nextSatisfied = level < 3 && IsLevelSatisfied(log, level + 1);
-        if (!ApprovalRules.CanCancel(approvedAt, nextSatisfied))
+        if (!ApprovalLevels.CanCancel(log, Modes, level))
             return Conflict("상위 단계가 이미 승인되어 취소할 수 없습니다.");
 
-        SetLevel(log, level, null, null, null);
+        ApprovalLevels.Set(log, level, null, null, null);
         await db.SaveChangesAsync();
 
         await EventLogger.LogAsync(db, EventLogCategory.Approval,
@@ -239,9 +234,7 @@ public class RepairLogsController(AppDbContext db) : ControllerBase
         if (log is null)
             return NotFound();
 
-        log.Level1ApproverId = null; log.Level1ApproverName = null; log.Level1ApprovedAt = null;
-        log.Level2ApproverId = null; log.Level2ApproverName = null; log.Level2ApprovedAt = null;
-        log.Level3ApproverId = null; log.Level3ApproverName = null; log.Level3ApprovedAt = null;
+        ApprovalLevels.Reset(log);
         await db.SaveChangesAsync();
 
         await EventLogger.LogAsync(db, EventLogCategory.Approval,
@@ -277,30 +270,6 @@ public class RepairLogsController(AppDbContext db) : ControllerBase
 
     private bool TryGetCurrentUser(out int userId, out UserRole role) => User.TryGetUser(out userId, out role);
 
-    private static (ApprovalLevelMode Mode, int? ApproverId, string? ApproverName, DateTimeOffset? ApprovedAt) GetLevel(Models.RepairLog log, int level) => level switch
-    {
-        1 => (Level1Mode, log.Level1ApproverId, log.Level1ApproverName, log.Level1ApprovedAt),
-        2 => (Level2Mode, log.Level2ApproverId, log.Level2ApproverName, log.Level2ApprovedAt),
-        3 => (Level3Mode, log.Level3ApproverId, log.Level3ApproverName, log.Level3ApprovedAt),
-        _ => throw new ArgumentOutOfRangeException(nameof(level))
-    };
-
-    private static bool IsLevelSatisfied(Models.RepairLog log, int level)
-    {
-        var (mode, _, _, approvedAt) = GetLevel(log, level);
-        return ApprovalRules.IsSatisfied(mode, approvedAt);
-    }
-
-    private static void SetLevel(Models.RepairLog log, int level, int? approverId, string? approverName, DateTimeOffset? approvedAt)
-    {
-        switch (level)
-        {
-            case 1: log.Level1ApproverId = approverId; log.Level1ApproverName = approverName; log.Level1ApprovedAt = approvedAt; break;
-            case 2: log.Level2ApproverId = approverId; log.Level2ApproverName = approverName; log.Level2ApprovedAt = approvedAt; break;
-            case 3: log.Level3ApproverId = approverId; log.Level3ApproverName = approverName; log.Level3ApprovedAt = approvedAt; break;
-        }
-    }
-
     // CanEdit/CanDelete가 요청자 기준 계산값이라 static이 아니다.
     private RepairLogDto ToDto(Models.RepairLog log) => new(
         log.Id, log.EquipmentId, log.Title, log.PerformedAt,
@@ -308,8 +277,8 @@ public class RepairLogsController(AppDbContext db) : ControllerBase
         log.StateBefore, log.StateAfter, log.Result,
         log.FailureCause, log.PreventiveAction, log.Opinion,
         log.CreatedByUserName, log.CreatedAt, log.UpdatedByUserName, log.UpdatedAt,
-        ApprovalRules.ToDto(Level1Mode, log.Level1ApproverName, log.Level1ApprovedAt),
-        ApprovalRules.ToDto(Level2Mode, log.Level2ApproverName, log.Level2ApprovedAt),
-        ApprovalRules.ToDto(Level3Mode, log.Level3ApproverName, log.Level3ApprovedAt),
+        ApprovalRules.ToDto(Modes[1], log.Level1ApproverName, log.Level1ApprovedAt),
+        ApprovalRules.ToDto(Modes[2], log.Level2ApproverName, log.Level2ApprovedAt),
+        ApprovalRules.ToDto(Modes[3], log.Level3ApproverName, log.Level3ApprovedAt),
         CanEdit(log), CanDelete(log));
 }

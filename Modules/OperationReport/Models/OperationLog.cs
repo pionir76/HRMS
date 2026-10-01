@@ -1,3 +1,5 @@
+using HRMS.Modules.Approval;
+
 namespace HRMS.Modules.OperationReport.Models;
 
 //--------------------------------------------------------------------------------//
@@ -5,7 +7,7 @@ namespace HRMS.Modules.OperationReport.Models;
 // 인라인 컬럼에 직접 둔다(Modules/Approval/README.md 참고). 점검일지와 달리 결재 진행 여부와
 // 무관하게 수정이 항상 허용된다 — 결재 완료 후 수정 잠금은 프론트가 UI로만 처리한다(README 참고).
 //--------------------------------------------------------------------------------//
-public class OperationLog
+public class OperationLog : IApprovable
 {
     public int Id { get; set; }
     public int EquipmentId { get; set; }

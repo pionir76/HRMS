@@ -11,6 +11,18 @@ public static class EventLogger
         AppDbContext db, EventLogCategory category, string message, string? username = null,
         int? equipmentId = null, int? compressorId = null, ChannelNo? channelNo = null)
     {
+        Add(db, category, message, username, equipmentId, compressorId, channelNo);
+        await db.SaveChangesAsync();
+    }
+
+    //-----------------------------------------------------------------------------//
+    // 저장하지 않고 추가만 한다 — 호출부가 나중에 SaveChangesAsync를 부른다. 한 요청에서
+    // 여러 건을 기록하는 일괄 결재용이다(문서 100건이면 LogAsync는 DB 왕복도 100번).
+    //-----------------------------------------------------------------------------//
+    public static void Add(
+        AppDbContext db, EventLogCategory category, string message, string? username = null,
+        int? equipmentId = null, int? compressorId = null, ChannelNo? channelNo = null)
+    {
         db.EventLogs.Add(new EventLog
         {
             Category = category,
@@ -21,7 +33,6 @@ public static class EventLogger
             ChannelNo = channelNo,
             CreatedAt = DateTimeOffset.UtcNow
         });
-        await db.SaveChangesAsync();
     }
 
     //-----------------------------------------------------------------------------//

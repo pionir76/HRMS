@@ -1,3 +1,4 @@
+using HRMS.Modules.Auth;
 using HRMS.Infrastructure;
 using HRMS.Modules.Alarm.Models;
 using HRMS.Modules.Attachment.Models;
@@ -14,19 +15,36 @@ namespace HRMS.Modules.Equipment.Controllers;
 // 장비 조회/등록/수정 API. 서비스/리포지토리 계층 없이 DbContext를 직접 써서 단순하게 유지한다
 // (이 규모의 시스템에서는 매 요청 DB 직접 조회로 충분 — overview.md 4.4 참고).
 // 등록/수정(장비관리 영역)은 시스템관리자 또는 그 장비의 담당자(UserEquipment)만 가능하다
-// (EquipmentAccess 참고) — 점검일지/운전일지 등 다른 API에는 이 제약이 없다.
+// (EquipmentAccess 참고). 점검일지/운전일지 저장도 2026-09-28부터 같은 기준을 쓴다.
 //---------------------------------------------------------------------------//
 [ApiController]
 [Route("api/equipments")]
 [Authorize]
 public class EquipmentsController(AppDbContext db) : ControllerBase
 {
-    // GET api/equipments — 장비 전체 목록. 시설동명 -> 장비명 오름차순으로 안정 정렬해서 내려간다
+    //---------------------------------------------------------------------------//
+    // GET api/equipments — 장비 목록. 시설동명 -> 장비명 오름차순으로 안정 정렬해서 내려간다
     // (호출할 때마다 순서가 흔들리면 프론트가 지역/시설동/설비 선택 드롭다운을 구성하기 어렵다).
+    //
+    // mine=true면 **로그인한 사용자가 담당(UserEquipment)인 장비만** 내려준다(2026-09-28 추가).
+    // 장비관리·점검일지·운전일지 화면처럼 "내 담당만 다뤄야 하는" 화면용이다 — 그 화면들은
+    // 저장 권한도 담당 기준이라(EquipmentAccess), 목록과 권한 범위를 맞추는 것이다.
+    // **시스템관리자는 mine=true여도 전체를 받는다**(사용자 결정) — 관리자는 보통 담당 배정이
+    // 없어서 그대로면 빈 목록이 되고, 장비관리 화면을 쓸 수 없게 된다.
+    // 기본값(false)은 기존과 동일한 전체 목록이다 — 실시간 현황/자료조회가 그대로 쓴다.
+    //---------------------------------------------------------------------------//
     [HttpGet]
-    public async Task<ActionResult<List<EquipmentDto>>> GetAll()
+    public async Task<ActionResult<List<EquipmentDto>>> GetAll([FromQuery] bool mine = false)
     {
-        var entities = await db.Equipments.OrderBy(e => e.BuildingName).ThenBy(e => e.Name).ToListAsync();
+        var query = db.Equipments.AsQueryable();
+
+        if (mine && !User.IsSystemAdmin())
+        {
+            int userId = User.GetUserId();
+            query = query.Where(e => db.UserEquipments.Any(ue => ue.UserId == userId && ue.EquipmentId == e.Id));
+        }
+
+        var entities = await query.OrderBy(e => e.BuildingName).ThenBy(e => e.Name).ToListAsync();
         var ids = entities.Select(e => e.Id);
         var decimalPlaces = await GetRunningCurrentDecimalPlacesAsync(ids);
         var photoFlags = await GetPhotoFlagsAsync(ids);
@@ -54,7 +72,7 @@ public class EquipmentsController(AppDbContext db) : ControllerBase
 
         return Ok(equipments.Select(e => new EquipmentStatusDto(
             e.Id, e.Region, e.BuildingName, e.Name, e.Status.ToString(),
-            e.IsRunning, e.CommunicationStatus.ToString(), e.AlarmStatus.IsConfirmedAlarm(),
+            e.IsRunning, e.CommunicationStatus.ToString(), e.AlarmStatus.IsConfirmedAlarm(), e.IsEmergencyStopped,
             compressorsByEquipment[e.Id]
                 .Select(c => new CompressorStatusDto(
                     c.Id, c.SequenceNo, c.CommunicationStatus.ToString(), c.AlarmStatus.IsConfirmedAlarm()))
@@ -98,7 +116,9 @@ public class EquipmentsController(AppDbContext db) : ControllerBase
     [HttpPost]
     public async Task<ActionResult<EquipmentDto>> Create(CreateEquipmentRequest request)
     {
-        if (!Enum.TryParse<EquipmentStatus>(request.Equipment.Status, out var status))
+        // Enum.TryParse는 "99" 같은 정의되지 않은 숫자도 통과시킨다 — IsDefined로 막지 않으면
+        // 잘못된 상태가 저장되어 /api/summary의 상태별 집계가 영구히 어긋난다(2026-09-28 추가).
+        if (!Enum.TryParse<EquipmentStatus>(request.Equipment.Status, out var status) || !Enum.IsDefined(status))
             return BadRequest("올바르지 않은 상태값입니다.");
 
         if (request.Compressors.Count == 0)
@@ -146,7 +166,7 @@ public class EquipmentsController(AppDbContext db) : ControllerBase
         if (equipment is null)
             return NotFound();
 
-        if (!Enum.TryParse<EquipmentStatus>(request.Status, out var status))
+        if (!Enum.TryParse<EquipmentStatus>(request.Status, out var status) || !Enum.IsDefined(status))
             return BadRequest("올바르지 않은 상태값입니다.");
 
         if (await db.Equipments.AnyAsync(e => e.Id != id && e.BuildingName == request.BuildingName && e.Name == request.Name))
@@ -271,6 +291,6 @@ public class EquipmentsController(AppDbContext db) : ControllerBase
         e.HasBrine, e.BrineInletMin, e.BrineInletMax, e.BrineOutletMin, e.BrineOutletMax,
         e.HasVoltage, e.VoltageMin, e.VoltageMax,
         e.RunningCurrentThreshold, runningCurrentThresholdDecimalPlaces,
-        e.IsRunning, e.CommunicationStatus.ToString(), e.AlarmStatus.IsConfirmedAlarm(),
+        e.IsRunning, e.CommunicationStatus.ToString(), e.AlarmStatus.IsConfirmedAlarm(), e.IsEmergencyStopped,
         photoFlags.HasEquipmentPhoto, photoFlags.HasInstallationPhoto);
 }

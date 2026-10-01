@@ -64,6 +64,13 @@ public static class EquipmentStatusAggregator
 
             equipment.CommunicationStatus = AggregateCommunication(members.Select(c => c.CommunicationStatus));
             equipment.AlarmStatus = AggregateAlarm(members.Select(c => c.AlarmStatus));
+
+            //--------------------------------------------------------------------------------//
+            // 비상정지는 1번 압축기(SequenceNo 최소)의 값만 본다(사양 확정 2026-09-29 — 모든
+            // 압축기에 비상정지 회로가 있지만 단순화를 위해 1번 기준으로 통일, LG도 동일).
+            // 2번 이후 압축기의 D1805는 폴링이 읽어 저장은 하지만 판정에 쓰지 않는다.
+            //--------------------------------------------------------------------------------//
+            equipment.IsEmergencyStopped = members.MinBy(c => c.SequenceNo)!.IsEmergencyStopped;
         }
 
         await db.SaveChangesAsync(stoppingToken);

@@ -124,11 +124,11 @@ CompressorChannelSetting        CompressorSensorCurrent
 - `CompressorChannelSetting`, `CompressorSensorCurrent`는 압축기 1대당 정확히 7행(CH01~07)이 고정이라 `(CompressorId, ChannelNo)` 복합키를 쓴다 — 의미 없는 별도 일련번호를 만들지 않기 위함.
 - `CompressorMeasurement`는 압축기 1대당 그 분(`MeasuredAt`)에 정확히 1행이라 `(CompressorId, MeasuredAt)` 복합키. 채널은 행이 아니라 컬럼(Ch01~07)으로 펼쳐서 저장한다(하루 데이터량을 7분의 1로 줄이기 위함).
 - `CompressorSensorCurrent.Value`, `CompressorMeasurement.Ch01~07`은 전부 `short`(raw int16) 타입이다. TLC가 보내는 원시값을 가공 없이 그대로 저장하며, 표시용 소수점 자리수(`CompressorChannelSetting.DecimalPlaces`)는 나중에 프론트가 값을 화면에 표시할 때 쓰라고 남겨둔 값일 뿐, 백엔드 저장/계산에는 관여하지 않는다.
-- `Compressor`는 의도적으로 필드가 적다. IP/포트/타임아웃 등 상당수는 시스템 공통값이거나 아직 필요하지 않아 뺐다. `SequenceNo`(장비 내 순번)는 예외로 추가됨 — 향후 경보 메시지에 "압축기 1번"처럼 표시하기 위한 용도(`Infrastructure/Seed/apply_compressor_sequence.sql`로 `ROW_NUMBER() OVER (PARTITION BY EquipmentId ORDER BY Id)` 계산해서 채움).
-- `CompressorChannelSetting.ChannelName`/`Unit`(채널 한글명/단위)은 채널 번호로 결정되는 시스템 공통값이라 압축기마다 다르지 않지만, 경보 메시지 생성 시 한 행 조회만으로 필요한 정보를 다 얻도록 일부러 같이 저장해뒀다(`apply_channel_names.sql`로 채움).
+- `Compressor`는 의도적으로 필드가 적다. IP/포트/타임아웃 등 상당수는 시스템 공통값이거나 아직 필요하지 않아 뺐다. `SequenceNo`(장비 내 순번)는 예외로 추가됨 — 향후 경보 메시지에 "압축기 1번"처럼 표시하기 위한 용도(시드에서 장비별로 압축기 id 순서대로 1부터 부여한다 — `Infrastructure/Seed/generate_seed_from_csv.js`).
+- `CompressorChannelSetting.ChannelName`/`Unit`(채널 한글명/단위)은 채널 번호로 결정되는 시스템 공통값이라 압축기마다 다르지 않지만, 경보 메시지 생성 시 한 행 조회만으로 필요한 정보를 다 얻도록 일부러 같이 저장해뒀다(시드가 압축기마다 CH01~07 7행을 만들 때 같이 채운다 — `Infrastructure/Seed/seed_from_csv.sql`).
 - `Equipment.IsRunning`/`AlarmStatus`/`CommunicationStatus`는 관리자가 설정하는 `Equipment.Status`(운영/미운영 등)와 완전히 다른 개념이다 — 압축기 데이터로부터 매 폴링 사이클 자동 계산되는 실시간 파생값이다. `IsRunning`은 "운전/정지" 둘뿐이라 처음부터 enum이 아니라 `bool`이다.
 - `AlarmStatus`(Modules/Alarm/Models)는 5가지 상태만 있다: 정상/경보발생대기/경보발생/정상복귀대기/경보비활성화. "경보확인"과 "경보해제"는 상태로 존재하지 않는다.
-- `Equipment`는 `(BuildingName, Name)` 조합에 유니크 인덱스가 걸려있다 — 같은 시설동에 이름이 완전히 같은 장비 두 개는 등록할 수 없다(시도하면 DB가 에러로 거부). `compressor_seed.sql`이 이 텍스트 조합으로 압축기를 소속 장비에 연결하기 때문에(Id가 아니라 이름으로 매칭), 이 유니크 제약이 깨지면 그 매칭이 압축기 하나를 두 장비에 중복 연결하는 식으로 조용히 틀어질 수 있다. 실제 자산 목록도 동명 설비는 "1호기/2호기"처럼 구분해서 이 제약을 이미 만족한다(overview.md 4.1 참고).
+- `Equipment`는 `(BuildingName, Name)` 조합에 유니크 인덱스가 걸려있다 — 같은 시설동에 이름이 완전히 같은 장비 두 개는 등록할 수 없다(시도하면 DB가 에러로 거부). 장비 자료(CSV)도 동명 설비를 "#1/#2"처럼 구분해서 이 제약을 이미 만족한다(overview.md 4.1 참고). 2026-09-18 시드부터는 압축기를 이름이 아니라 CSV의 장비 id로 연결하므로, 이름이 겹쳐도 매칭이 어긋나지는 않는다.
 
 ## 5.1 트렌드 기록 (Modules/Trend/TrendRecordingService.cs)
 
@@ -233,7 +233,7 @@ AuthController
 - **경보**(`LogAlarmTransitionIfNeededAsync`): `AlarmEvaluator.Evaluate()` 호출 전후로 `AlarmStatus`를 비교해서, "발생"(경보발생대기→경보발생)과 "해제"(정상복귀대기→정상) 확정 순간만 기록한다. 중간 대기 상태는 기록하지 않는다.
 - **통신장애**(`LogCommunicationAlarmAsync`): `HasCommunicationAlarm`이 `false`→`true`로 바뀌는 순간만 기록한다. 통신 상태(연결됨/끊김/재접속중) 자체의 전이나, 통신장애 경보의 복구는 기록하지 않는다(사용자 결정 — 너무 잦음).
 - 메시지는 `"{지역} {시설동}의 {장비명}의 압축기 {SequenceNo}번 {ChannelName}값이 범위를 벗어났습니다"` 형태로 서버가 조립한다. 필요한 장비/압축기 정보(`GetCompressorContextAsync`)는 전이가 실제로 일어난 드문 순간에만 조회한다 — 매 폴링 사이클마다 미리 로드해두지 않는다.
-- `AlarmDelaySeconds`/`AlarmClearDelaySeconds` 둘 다 기본값 30초(`CompressorChannelSetting.cs` 속성 기본값 + `apply_alarm_defaults.sql`)가 적용되어 있다. 채널값이 상/하한을 벗어나도(또는 정상 범위로 돌아와도) 30초 동안 그 상태가 **끊김 없이 계속 유지**되어야 확정되고, 중간에 단 한 번이라도 반대 상태로 바뀌면 대기가 취소되고 처음부터 다시 시작한다(`AlarmEvaluator`).
+- `AlarmDelaySeconds`/`AlarmClearDelaySeconds` 둘 다 기본값 30초(`CompressorChannelSetting.cs` 속성 기본값 + `Infrastructure/Seed/seed_from_csv.sql`)가 적용되어 있다. 채널값이 상/하한을 벗어나도(또는 정상 범위로 돌아와도) 30초 동안 그 상태가 **끊김 없이 계속 유지**되어야 확정되고, 중간에 단 한 번이라도 반대 상태로 바뀌면 대기가 취소되고 처음부터 다시 시작한다(`AlarmEvaluator`).
 - **테스트 모드 관련 참고**: `GenerateTestValues()`는 매 사이클(3초)마다 완전히 독립적인 새 랜덤값을 뽑기 때문에, 30초(10사이클) 연속으로 같은 방향(상한초과/하한미만/정상범위)을 유지할 확률이 매우 낮다 — 실제로 초기화 후 40초 넘게 관찰해도 이벤트가 하나도 안 쌓이는 걸 확인했다. 실제 센서값은 값이 연속적으로 변하므로 이런 극단적인 경우가 없지만, **테스트 모드로 지연 기반 경보 확정을 눈으로 확인하려면 지연시간을 일시적으로 낮추거나(예: 3~6초) 별도 확인 방법이 필요**하다.
 
 ## 9. 아직 없는 것
