@@ -21,15 +21,23 @@ HRMS 백엔드를 **현장 서버에 설치하는 절차(1부)**와 **개발 PC 
 
 ## 1. 한눈에 보기
 
-현장 서버는 폐쇄망이라 인터넷에서 패키지를 받을 수 없다고 보고, **빌드는 개발 PC에서 끝내고 결과물만 가져가는** 방식으로 설치한다. 서버에는 .NET SDK도, `dotnet ef` 도구도 필요 없다.
+**빌드는 개발 PC에서 끝내고 결과물만 가져가는** 방식으로 설치한다. 서버에는 .NET SDK도, `dotnet ef` 도구도 필요 없고, 서버에서 인터넷으로 패키지를 내려받을 일도 없다.
+
+**화면과 API를 `http://서버주소/`(80번 포트) 하나로 서비스한다**(2026-10-02). 백엔드가 프론트 빌드 파일(`C:\HRMS\wwwroot`)까지 직접 내보내므로 별도 웹 서버(IIS 등)가 필요 없고, 화면과 API가 같은 주소라 CORS 설정도 필요 없다. 현장 서버 주소는 `http://59.16.212.237/`이다.
+
+```text
+http://서버주소/            → 프론트 화면 (C:\HRMS\wwwroot\index.html)
+http://서버주소/api/...     → 백엔드 API
+http://서버주소/health      → 상태 확인 (로그인 불필요)
+```
 
 ```text
 [개발 PC]                                    [현장 서버]
  3. 실행 파일 게시(.NET 포함)  ─┐             4. PostgreSQL 17 설치
-    DB 스키마 SQL 생성          ├─ USB 등 ─▶   5. DB·계정 만들기
-    장비 시드 SQL               │              6. 스키마 SQL 실행
-    PostgreSQL 설치 파일       ─┘              7. 장비 시드 SQL 실행
-                                               8. 프로그램 배치 + appsettings.json 설정
+    DB 스키마 SQL 생성          │              5. DB·계정 만들기
+    장비 시드 SQL               ├─ USB 등 ─▶   6. 스키마 SQL 실행
+    프론트 빌드 결과(프론트 담당) │              7. 장비 시드 SQL 실행
+    PostgreSQL 설치 파일       ─┘              8. 프로그램·프론트 배치 + appsettings.json 설정
                                                9. Windows 서비스 등록
                                               10. 첫 로그인 → 관리자 비밀번호 변경
                                               11. 설치 후 테스트
@@ -103,6 +111,7 @@ dotnet ef migrations script --idempotent -o C:\HRMS_setup\hrms_schema.sql
 | `Infrastructure\Seed\seed_from_csv.sql` | 저장소 — 장비·압축기·채널 설정 시드 |
 | `Infrastructure\Compressors.csv` | 저장소 — 2.2 네트워크 확인용 |
 | `Infrastructure\Setup\check_install.sql` | 저장소 — 설치 확인 스크립트(6·7·11장) |
+| **프론트 빌드 결과**(`index.html`과 js·css 등) | **프론트 담당에게 받는다** — 아래 주의 참고 |
 | PostgreSQL 17 Windows 설치 파일 | https://www.postgresql.org/download/windows/ (EDB installer, **17.x**) |
 
 최종적으로 `C:\HRMS_setup`에 아래가 있으면 된다. 이 폴더째로 서버의 같은 경로에 복사한다.
@@ -114,8 +123,11 @@ C:\HRMS_setup\
  ├─ seed_from_csv.sql
  ├─ check_install.sql
  ├─ Compressors.csv
+ ├─ frontend\               (프론트 빌드 결과 — 이 폴더 바로 아래에 index.html)
  └─ postgresql-17.x-windows-x64.exe
 ```
+
+> **프론트 빌드의 API 주소는 "같은 주소(상대 경로)"여야 한다.** 화면이 `http://서버주소/`에서 뜨고 API는 같은 주소의 `/api/...`로 부르는 구조다. 프론트가 개발 때처럼 `https://localhost:7253` 같은 주소를 박아 넣은 채로 빌드되면 현장에서 화면만 뜨고 로그인부터 실패한다. 빌드를 받을 때 프론트 담당에게 확인한다.
 
 ## 4. PostgreSQL 설치
 
@@ -202,7 +214,16 @@ $env:PGPASSWORD = "hrms_app비밀번호"
 
 ### 8.1 배치
 
-`C:\HRMS_setup\HRMS` 폴더를 **`C:\HRMS`**로 복사한다. 실행 파일은 `C:\HRMS\HRMS.exe`가 된다.
+`C:\HRMS_setup\HRMS` 폴더를 **`C:\HRMS`**로 복사하고, 프론트 빌드 결과를 **`C:\HRMS\wwwroot`**에 복사한다.
+
+```powershell
+robocopy C:\HRMS_setup\HRMS C:\HRMS /E
+robocopy C:\HRMS_setup\frontend C:\HRMS\wwwroot /E
+Test-Path C:\HRMS\wwwroot\index.html      # True여야 한다
+```
+
+- 실행 파일은 `C:\HRMS\HRMS.exe`, 화면 파일은 `C:\HRMS\wwwroot\index.html`이 된다. `wwwroot` 바로 아래에 `index.html`이 있어야 한다(한 단계 더 들어간 폴더에 있으면 화면이 안 뜬다).
+- `wwwroot`는 **서비스가 시작할 때** 읽는다. 서비스가 이미 돌고 있을 때 처음 넣었다면 `Restart-Service HRMS`를 한다.
 
 ### 8.2 `appsettings.json` 설정
 
@@ -210,7 +231,7 @@ $env:PGPASSWORD = "hrms_app비밀번호"
 
 ```json
 {
-  "Urls": "http://0.0.0.0:5000",
+  "Urls": "http://0.0.0.0:80",
 
   "ConnectionStrings": {
     "Default": "Host=localhost;Port=5432;Database=hrms;Username=hrms_app;Password=hrms_app비밀번호"
@@ -222,7 +243,7 @@ $env:PGPASSWORD = "hrms_app비밀번호"
   },
 
   "Cors": {
-    "AllowedOrigins": [ "http://프론트주소:포트" ]
+    "AllowedOrigins": []
   },
 
   "Communication": {
@@ -238,10 +259,10 @@ $env:PGPASSWORD = "hrms_app비밀번호"
 
 | 항목 | 넣을 값 | 비고 |
 |---|---|---|
-| `Urls` | `http://0.0.0.0:5000` | **새로 추가하는 줄**이다. 없으면 서버 자신(`localhost`)에서만 접속되고 다른 PC에서는 접속이 안 된다. 포트를 바꾸려면 9.2 방화벽도 같이 바꾼다 |
+| `Urls` | `http://0.0.0.0:80` | **새로 추가하는 줄**이다. 없으면 **서버 자신에서만, 5000번으로** 뜬다(다른 PC에서 접속 불가, `http://서버주소/`로도 안 열림). 80번이 다른 프로그램에 쓰이고 있으면 기동하지 못한다(8.3) |
 | `ConnectionStrings:Default` | 5장의 `hrms_app` 비밀번호 | **비어 있으면 서비스가 기동하지 않는다**(의도된 동작) |
 | `Jwt:Key` | 무작위 문자열 32바이트 이상 | **비어 있거나 짧으면 기동하지 않는다.** 개발 PC의 키를 쓰지 않는다 |
-| `Cors:AllowedOrigins` | 프론트 웹 주소 | 프론트를 이 서버의 **같은 주소·포트**에서 서비스하면 `[]` 그대로 둔다. 다른 포트·다른 PC면 그 주소를 넣는다 — 포트만 달라도 브라우저가 막는다 |
+| `Cors:AllowedOrigins` | `[]` (그대로) | 화면과 API가 같은 주소(80번)라 필요 없다. 프론트를 다른 서버·다른 포트에서 따로 띄우는 구성으로 바꿀 때만 그 주소를 넣는다 |
 | `Communication:TestMode` | **`false`** | 기본값이 `false`다. `true`면 실제 장비와 통신하지 않는다 |
 | `SystemStatus:StorageDrive` | **PostgreSQL 데이터 폴더가 있는 드라이브** | 대시보드의 저장소 사용량이 이 드라이브를 가리킨다. 4장에서 데이터 폴더를 바꿨으면 그 드라이브로 |
 
@@ -251,7 +272,25 @@ JWT 키 만들기:
 [Convert]::ToBase64String((1..48 | ForEach-Object { Get-Random -Maximum 256 }))
 ```
 
-> 비밀번호와 키를 파일에 적지 않고 시스템 환경변수로 줄 수도 있다(이름의 구분자는 **밑줄 두 개**: `ConnectionStrings__Default`, `Jwt__Key`). 폐쇄망이라 파일에 적어도 무방하다는 판단이다(사용자 확인 2026-09-28).
+> `appsettings.json`에는 DB 비밀번호와 JWT 키가 들어간다. `C:\HRMS` 폴더는 서버 관리자만 열 수 있게 둔다. 파일에 적지 않고 시스템 환경변수로 줄 수도 있다(이름의 구분자는 **밑줄 두 개**: `ConnectionStrings__Default`, `Jwt__Key`).
+
+### 8.3 80번 포트가 비어 있는지 확인
+
+Windows Server에 IIS(웹 서버)가 켜져 있으면 80번을 이미 쓰고 있어서 HRMS가 기동하지 못한다.
+
+```powershell
+netstat -ano | findstr ":80 " | findstr LISTENING     # 아무것도 안 나오면 비어 있음
+Get-Service W3SVC -ErrorAction SilentlyContinue       # IIS. 있으면 아래로 끈다
+```
+
+IIS를 쓰지 않는다면 끄고 자동 시작도 막는다.
+
+```powershell
+Stop-Service W3SVC
+Set-Service W3SVC -StartupType Disabled
+```
+
+다른 프로그램이 80번을 쓰고 있으면(`netstat` 마지막 열이 프로세스 번호) `Get-Process -Id 번호`로 무엇인지 확인한다. `System`(PID 4)이면 IIS나 다른 Windows 웹 기능(http.sys)이다.
 
 ## 9. Windows 서비스 등록
 
@@ -269,16 +308,29 @@ Get-Service HRMS        # Status가 Running이면 정상
 
 서비스가 **바로 Stopped로 바뀌면** 설정 문제다. 이벤트 뷰어 → Windows 로그 → 응용 프로그램에서 한국어 오류 메시지(예: "DB 연결 문자열이 비어 있습니다")를 확인한다(16장).
 
-### 9.2 방화벽
+### 9.2 방화벽 — 80번만 열고 DB 포트는 막는다
+
+이 서버는 **외부(인터넷)에서도 접속되는 주소**다. 화면·API용 80번만 열고, PostgreSQL(5432)은 밖에서 닿지 않게 막는다. 2026-10-02에 개발 PC에서 확인했을 때 **서버의 5432 포트가 외부에 열려 있었다.**
 
 ```powershell
-New-NetFirewallRule -DisplayName "HRMS API" -Direction Inbound -Protocol TCP -LocalPort 5000 -Action Allow
+# 화면·API
+New-NetFirewallRule -DisplayName "HRMS Web (80)" -Direction Inbound -Protocol TCP -LocalPort 80 -Action Allow
+
+# PostgreSQL 외부 접속 차단 (같은 서버의 HRMS는 영향 없음)
+New-NetFirewallRule -DisplayName "Block PostgreSQL external (5432)" -Direction Inbound -Protocol TCP -LocalPort 5432 -Action Block
+
+# 예전 안내대로 5000번 규칙을 만들었다면 지운다
+Remove-NetFirewallRule -DisplayName "HRMS API" -ErrorAction SilentlyContinue
 ```
+
+- Windows 방화벽은 차단 규칙이 허용 규칙보다 우선한다. PostgreSQL 설치 프로그램이 만든 허용 규칙이 있어도 위 차단 규칙이 이긴다.
+- 같은 서버 안의 접속(`localhost`)은 방화벽을 거치지 않으므로 HRMS가 DB에 붙는 데는 영향이 없다.
+- 확인: 다른 PC에서 `Test-NetConnection 59.16.212.237 -Port 5432`가 `False`, `-Port 80`이 `True`.
 
 ### 9.3 참고
 
 - 서비스로 돌면 **자동으로 운영 모드(Production)**로 뜬다. `ASPNETCORE_ENVIRONMENT`를 따로 설정하지 않는다.
-- HTTPS는 쓰지 않는다(폐쇄망). HTTPS 리다이렉트는 개발 모드에서만 걸리므로 HTTP로 그대로 서비스된다.
+- 현재는 **HTTP**로 서비스한다(HTTPS 리다이렉트는 개발 모드에서만 걸린다). 외부에서 접속되는 서버라 HTTPS 적용 여부는 12.1에서 다룬다.
 - 서비스 제거: `Stop-Service HRMS; sc.exe delete HRMS`
 
 ## 10. 첫 로그인과 관리자 비밀번호
@@ -312,9 +364,9 @@ DB에 사용자가 한 명도 없으면 첫 기동 때 관리자 계정이 자�
 | # | 확인 | 방법 | 정상 결과 |
 |---|---|---|---|
 | 1 | 서비스 기동 | `Get-Service HRMS` | `Running` |
-| 2 | 상태 점검 | 서버에서 `curl.exe http://localhost:5000/health` | `200`, `"status":"정상"`. DB 연결 이상이나 수집 정지면 `503` |
+| 2 | 상태 점검 | 서버에서 `curl.exe http://localhost/health` | `200`, `"status":"정상"`. DB 연결 이상이나 수집 정지면 `503` |
 | 3 | **운영 모드로 떴는지** | 11.2의 기동 이벤트 쿼리 | `HRMS 백엔드 시작 (TestMode=False, 장비 158대, 압축기 246대)` — **`TestMode=True`면 즉시 중지하고 8.2를 다시 본다** |
-| 4 | 로그인 | 다른 PC 브라우저에서 프론트 접속 → `admin` 로그인 | 로그인 성공. 실패하면 9.2 방화벽, 8.2 `Urls`·`Cors` 확인 |
+| 4 | **외부 접속·로그인** | ① 다른 PC 브라우저에서 `http://59.16.212.237/health` ② `http://59.16.212.237/` → `admin` 로그인 ③ 화면에서 새로고침(F5) | ① JSON 상태 ② 로그인 화면이 뜨고 로그인 성공 ③ 같은 화면이 다시 뜸. 안 되면 16장 |
 | 5 | **현장 TLC 통신** | 11.2의 통신 상태 쿼리 | 수집 대상 223대 중 대부분 `연결됨`. 끊긴 압축기는 11.2의 목록으로 뽑아 네트워크 담당자와 확인 |
 | 6 | 값 갱신 | 11.2의 갱신 쿼리를 몇 초 간격으로 두 번 | 최근 10초 안에 갱신된 압축기 수가 연결된 수와 비슷. 실시간 현황 화면 숫자가 3초마다 바뀜 |
 | 7 | 트렌드 기록 | 2분 뒤 11.2의 트렌드 쿼리 | 최근 1분 기록이 연결된 압축기 수만큼 |
@@ -379,6 +431,21 @@ IP가 정해지면 장비관리 화면(압축기 수정)에서 넣으면 다음 
 | 10 | **JWT 키를 바꾸면 모든 사용자가 다시 로그인해야 한다** | 기존 로그인 토큰이 전부 무효가 된다 |
 | 11 | **설정값 일괄 적용 API(api-manual 77·78번)는 쓰지 않는다** | 현장에서 장비별로 맞춘 설정을 한 번에 덮어쓸 위험이 있어 화면 반영을 보류했다(2026-10-01) |
 | 12 | **경로에 한글을 쓰지 않는다**(2.1) | psql이 파일을 못 읽는 경우가 있다 |
+| 13 | **프론트를 새로 받으면 `wwwroot`만 교체한다**(14장) | 백엔드 파일을 건드릴 필요가 없다 |
+
+### 12.1 외부(인터넷)에서 접속되는 서버라서 추가로 지킬 것
+
+개발 단계에서는 "남양연구소 내부망 전용(폐쇄망)"을 전제로 보안을 단순하게 두었다(2026-09-28). 현장 서버가 **외부에서도 접속되는 주소**(`59.16.212.237`)로 확인되어(2026-10-02) 아래를 추가로 지킨다.
+
+| 항목 | 할 일 | 현재 상태 |
+|---|---|---|
+| 열린 포트 | **80번만** 연다. 5432(DB)는 막는다(9.2) | 2026-10-02 확인 시 5432가 외부에 열려 있었다 |
+| 관리자 비밀번호 | `admin`은 추측하기 어려운 긴 비밀번호로(10장). DB의 `postgres`·`hrms_app`도 마찬가지 | 최초 `admin1234` |
+| 통신 암호화 | **HTTP라서 로그인·비상정지 비밀번호가 암호화 없이 전송된다.** 외부망을 거쳐 접속한다면 HTTPS(인증서) 적용을 검토한다 | 미적용 — **결정 필요** |
+| 로그인 시도 제한 | 비밀번호를 여러 번 틀려도 잠기지 않는다. 비밀번호를 충분히 길게 하는 것으로 대신한다 | 미구현(20명 규모라 제외했었음) |
+| 원격 데스크톱 등 | 서버 관리용 포트는 기관의 보안 정책을 따른다 | — |
+
+`/health`는 로그인 없이 열리지만 "정상/오류"와 마지막 수집 시각만 내보내고 장비·사용자 정보는 내보내지 않는다.
 
 ## 13. 백업
 
@@ -422,14 +489,20 @@ robocopy C:\HRMS_setup\HRMS C:\HRMS /E /XF appsettings.json /XD App_Data
 # 4) 스키마 변경 적용 (이미 적용된 부분은 건너뛰므로 변경이 없어도 실행해도 된다)
 & $psql -h localhost -U hrms_app -d hrms -f C:\HRMS_setup\hrms_schema.sql
 
-# 5) 서비스 시작과 확인
+# 5) 프론트도 새로 받았다면 wwwroot를 통째로 교체 (/MIR: 옛 파일은 지운다)
+robocopy C:\HRMS_setup\frontend C:\HRMS\wwwroot /MIR
+
+# 6) 서비스 시작과 확인
 Start-Service HRMS
-curl.exe http://localhost:5000/health
+curl.exe http://localhost/health
 ```
+
+**프론트만 바뀐 경우**에는 1)·2)·5)·6)만 하면 된다(서비스를 멈추지 않고 5)만 해도 대부분 반영되지만, 새로 고침이 섞여 보일 수 있어 멈췄다 켜는 쪽이 깔끔하다).
 
 - **`seed_from_csv.sql`은 실행하지 않는다**(12장 4번).
 - 새 버전에 `appsettings.json` 항목이 추가됐다면 릴리스 내용을 보고 기존 파일에 **손으로 추가**한다(덮어쓰지 않는다).
-- 업데이트 뒤 11.1의 1·2·3·5번을 다시 확인한다.
+- 3)의 백엔드 복사는 `/MIR`을 쓰지 않는다 — `wwwroot`·`App_Data`가 지워진다.
+- 업데이트 뒤 11.1의 1·2·3·4·5번을 다시 확인한다.
 
 ## 15. 로그 위치
 
@@ -449,10 +522,14 @@ findstr "추적번호" C:\HRMS\App_Data\logs\hrms-*.log
 
 | 증상 | 원인 / 조치 |
 |---|---|
-| 서비스가 시작하자마자 `Stopped` | 설정 문제. 이벤트 뷰어 → 응용 프로그램의 메시지를 본다 — "DB 연결 문자열이 비어 있습니다", "JWT 서명 키가 없습니다/너무 짧습니다"면 8.2. DB 비밀번호가 틀려도 여기서 멈춘다 |
+| **서버 자신에서도 접속이 안 됨** | 순서대로 본다: ① `Get-Service HRMS`가 `Running`인가 ② `netstat -ano \| findstr ":80 "`에 `0.0.0.0:80 … LISTENING`이 있는가 ③ `curl.exe -i http://localhost/health`. ②가 비어 있으면 8.2 `Urls`가 빠졌거나(그러면 5000번으로 뜬다) 80번을 다른 프로그램이 쓰고 있다(8.3) |
+| 서비스가 시작하자마자 `Stopped` | 설정 문제. **가장 빠른 확인은 콘솔로 직접 실행하는 것**: `Stop-Service HRMS; cd C:\HRMS; .\HRMS.exe` → 오류 메시지가 화면에 그대로 나온다(정상이면 `Now listening on: http://0.0.0.0:80`, 확인 후 `Ctrl+C` → `Start-Service HRMS`). "DB 연결 문자열이 비어 있습니다", "JWT 서명 키가 없습니다/너무 짧습니다"면 8.2. `address already in use`면 8.3 |
 | `/health`가 `503` | `database`가 이상이면 PostgreSQL 서비스·연결 문자열. `polling`이 이상이면 수집이 30초 넘게 멈춘 것 — 파일 로그 확인 |
-| 서버에서는 되는데 다른 PC에서 접속 안 됨 | 8.2 `Urls`가 `http://0.0.0.0:5000`인지, 9.2 방화벽 규칙이 있는지 |
-| 브라우저 개발자 도구에 CORS 오류 | 프론트 주소가 `Cors:AllowedOrigins`에 없다(8.2). 바꾼 뒤 `Restart-Service HRMS` |
+| 서버에서는 되는데 다른 PC에서 접속 안 됨 | 8.2 `Urls`가 `http://0.0.0.0:80`인지(`localhost`가 아니라 `0.0.0.0`), 9.2의 80번 허용 규칙이 있는지. 서버 앞단(기관 방화벽·공유기)에서 80번을 막고 있을 수도 있다 — 네트워크 담당자 확인 |
+| `http://주소/`가 404(빈 화면), `/health`는 정상 | `C:\HRMS\wwwroot\index.html`이 없다(8.1). 한 단계 안쪽 폴더에 들어가 있지 않은지 확인. 넣은 뒤 `Restart-Service HRMS` |
+| 화면은 뜨는데 로그인부터 실패 | 브라우저 개발자 도구(F12) → 네트워크 탭에서 요청 주소를 본다. `http://서버주소/api/...`가 아니라 `localhost`나 다른 포트로 가고 있으면 프론트 빌드의 API 주소 설정 문제다(3.3 주의) — 프론트 담당에게 다시 빌드 요청 |
+| 화면이 일부 깨지거나 스크립트 오류 | 프론트 빌드 파일 일부가 빠졌다. `robocopy … /MIR`로 `wwwroot`를 다시 복사한다 |
+| 브라우저 개발자 도구에 CORS 오류 | 프론트를 다른 주소·포트에서 띄우고 있다는 뜻이다. 이 구성(80번 하나)에서는 생기지 않는다 — 화면을 `http://서버주소/`로 열었는지 확인 |
 | 압축기가 전부 "끊김" | ① 11.1-3에서 `TestMode=False`인지(테스트 모드는 전부 "연결됨"으로 보이므로 이 증상과는 반대) ② 서버에서 TLC로 TCP 5000이 나가는지 — 2.2 스크립트로 확인 ③ 서버 자체 방화벽의 아웃바운드 차단 |
 | 일부 압축기만 "끊김" | 11.2의 목록을 네트워크 담당자에게 전달. 장비 전원·케이블·IP 변경 여부 확인. IP가 바뀌었으면 장비관리 화면에서 수정 |
 | 로그인이 안 됨(`401`) | 아이디/비밀번호 확인. 일반 사용자는 시스템관리자가 조직관리에서 비밀번호를 초기화한다. **`admin`(시스템관리자) 비밀번호를 잊으면 개발 쪽 지원이 필요하다**(10장) |
@@ -641,16 +718,17 @@ logger.LogInformation("channels: {Channels} {CompressorId}", channels, c.Id);
 
 | 항목 | 기본값 | 설명 |
 |---|---|---|
-| `Urls` | (없음 → `http://localhost:5000`) | 서비스 주소. 현장은 `http://0.0.0.0:5000`(8.2) |
+| `Urls` | (없음 → `http://localhost:5000`) | 서비스 주소. 현장은 `http://0.0.0.0:80`(8.2) |
 | `ConnectionStrings:Default` | 빈 값 | **필수.** 비면 기동 안 함 |
 | `Jwt:Key` / `Jwt:Issuer` | 빈 값 / `HRMS` | **Key 필수, 32바이트 이상** |
-| `Cors:AllowedOrigins` | `[]` | 프론트가 다른 주소·포트면 그 주소. 개발 모드는 전부 허용 |
+| `Cors:AllowedOrigins` | `[]` | 현장은 화면과 API가 같은 주소라 `[]`. 프론트를 따로 띄울 때만 그 주소. 개발 모드는 전부 허용 |
 | `Communication:TestMode` | `false` | `true`면 모의값(현장은 반드시 `false`) |
 | `Communication:TimeoutMs` | `1500` | TLC 연결·응답 타임아웃(ms). 폴링 주기(3초)보다 짧아야 한다 |
 | `Communication:RealDeviceIps` | (없음) | 테스트 모드에서도 실제로 통신할 IP 목록. 개발 전용(19.1) |
 | `FileStorage:RootPath` | `App_Data/attachments` | 첨부파일 저장 위치(실행 파일 기준 상대 경로 또는 절대 경로) |
 | `SystemStatus:StorageDrive` | `C:\` | 대시보드 저장소 사용량을 볼 드라이브 = PostgreSQL 데이터 드라이브 |
 | `Logging:File:Directory` / `RetentionDays` | `App_Data/logs` / `30` | 파일 로그 위치·보관 일수 |
+| (폴더) `wwwroot` | 없음 | 프론트 빌드 결과를 넣는 곳(8.1). 있으면 `/`에서 화면을 내보낸다. **개발 PC 저장소에는 두지 않는다**(`.gitignore`) |
 | `Logging:LogLevel:*` | `Information`(EF Core·AspNetCore는 `Warning`) | 로그 레벨 |
 
 ## 부록 B. psql 기본 명령
