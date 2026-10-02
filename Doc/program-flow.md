@@ -224,7 +224,7 @@ AuthController
 - 로그인 이후 요청은 `Authorization: Bearer {token}` 헤더로 인증한다. 기존 조회 컨트롤러 4개는 전부 `[Authorize]`가 붙어 토큰 없이는 호출 불가.
 - `POST /api/auth/logout`은 서버가 토큰을 무효화하지는 않는다(JWT는 상태가 없어서 블랙리스트 없이는 그럴 수 없음) — 프론트가 토큰을 버리면 그걸로 로그아웃이고, 이 엔드포인트는 EventLog에 "로그아웃" 기록만 남긴다.
 - `EventLog`(Modules/Logging): 카테고리별(`UserAccess`/`EmergencyStop`/`Communication`/`Alarm`/`System`) 단일 테이블. `EquipmentId`/`CompressorId`/`ChannelNo`(전부 nullable) 참조 필드가 있어서, `Message`(사람이 읽는 완성 문장)를 파싱하지 않고도 필터링·화면 이동이 가능하다. `UserAccess`(로그인/로그아웃)에 이어 `Alarm`/`Communication`도 구현되었다 — 자세한 내용은 아래 "경보/통신장애 이벤트 기록" 참고. 나머지(`EmergencyStop`/`System`)는 해당 기능을 만들 때 `EventLogger.LogAsync(...)` 호출을 추가하면 된다.
-- 최초 관리자 계정(`admin`/`admin1234`)은 `Program.cs`에서 `Users` 테이블이 비어있을 때 자동 생성된다 (setup.md 11장 참고). 계정 잠금, 비밀번호 재설정, 사용자 관리 API는 20명 규모에 비해 과하다고 판단해 구현하지 않았다.
+- 최초 관리자 계정(`admin`/`admin1234`)은 `Program.cs`에서 `Users` 테이블이 비어있을 때 자동 생성된다 (setup.md 10장 참고). 계정 잠금, 비밀번호 재설정, 사용자 관리 API는 20명 규모에 비해 과하다고 판단해 구현하지 않았다.
 
 ### 경보/통신장애 이벤트 기록 (Modules/Communication/CompressorPollingService.cs)
 

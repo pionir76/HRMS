@@ -38,16 +38,16 @@ builder.Services.AddOpenApi();
 string connectionString = builder.Configuration.GetConnectionString("Default")
     ?? throw new InvalidOperationException(
         "DB 연결 문자열이 없습니다. appsettings.json의 ConnectionStrings:Default 또는 " +
-        "환경변수 ConnectionStrings__Default를 설정하세요 (Doc/setup.md 3장).");
+        "환경변수 ConnectionStrings__Default를 설정하세요 (Doc/setup.md 8장).");
 
 if (string.IsNullOrWhiteSpace(connectionString))
     throw new InvalidOperationException(
-        "DB 연결 문자열이 비어 있습니다. appsettings.json의 ConnectionStrings:Default를 채우세요 (Doc/setup.md 3장).");
+        "DB 연결 문자열이 비어 있습니다. appsettings.json의 ConnectionStrings:Default를 채우세요 (Doc/setup.md 8장).");
 
 string jwtKey = builder.Configuration["Jwt:Key"] ?? "";
 if (string.IsNullOrWhiteSpace(jwtKey))
     throw new InvalidOperationException(
-        "JWT 서명 키가 없습니다. appsettings.json의 Jwt:Key 또는 환경변수 Jwt__Key를 설정하세요 (Doc/setup.md 7장).");
+        "JWT 서명 키가 없습니다. appsettings.json의 Jwt:Key 또는 환경변수 Jwt__Key를 설정하세요 (Doc/setup.md 8장).");
 
 //--------------------------------------------------------------------------------//
 // HMAC-SHA256은 키가 256비트(32바이트) 이상이어야 한다. 짧으면 앱은 정상 기동하고
@@ -55,7 +55,7 @@ if (string.IsNullOrWhiteSpace(jwtKey))
 //--------------------------------------------------------------------------------//
 if (Encoding.UTF8.GetByteCount(jwtKey) < 32)
     throw new InvalidOperationException(
-        $"JWT 서명 키가 너무 짧습니다(현재 {Encoding.UTF8.GetByteCount(jwtKey)}바이트). 32바이트 이상이어야 합니다 (Doc/setup.md 7장).");
+        $"JWT 서명 키가 너무 짧습니다(현재 {Encoding.UTF8.GetByteCount(jwtKey)}바이트). 32바이트 이상이어야 합니다 (Doc/setup.md 8장).");
 
 builder.Services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connectionString));
 
