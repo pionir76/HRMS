@@ -45,7 +45,7 @@ D1801로 판정하면 **비상정지를 걸어도 3초 뒤 폴링이 "정상"으
 - **명령 결과를 DB에 즉시 반영한다.** 폴링을 기다리면 최대 3초 동안 화면이 예전 상태를 보여준다. 1번 압축기와 장비만 바꾼다(집계가 1번 값만 본다).
 - **통신이 끊긴 사이클에는 상태를 갱신하지 않는다**(마지막으로 확인된 값 유지). 모르는 것을 "해제됨"으로 보이게 하는 쪽이 더 위험하다.
 - **실패 응답에도 현재 상태를 담는다.** 정지된 장비의 해제가 실패했는데 화면이 "해제됨"으로 보이면 안 된다.
-- **테스트 모드**(`Communication:TestMode=true`)에서는 TCP 쓰기 없이 상태만 바꾸고, 폴링도 비상정지 상태를 덮어쓰지 않는다(모의값에 8번째 자리가 없다). 그래서 TLC 없이 화면 검증이 가능하다. 단 `Communication:RealDeviceIps`에 적힌 TLC는 테스트 모드여도 실제로 쓰고 읽는다(`Modules/Communication/CommunicationMode.cs`, setup.md 19.1).
+- **테스트 모드**(`Communication:TestMode=true`)에서는 TCP 쓰기 없이 상태만 바꾸고, 폴링도 비상정지 상태를 덮어쓰지 않는다(모의값에 8번째 자리가 없다). 그래서 TLC 없이 화면 검증이 가능하다. 단 `Communication:RealDeviceIps`에 적힌 TLC는 테스트 모드여도 실제로 쓰고 읽는다(`Modules/Communication/CommunicationMode.cs`, setup.md 20.1).
 
 ## 실기기 검증 (2026-09-29, 샘플 TLC `59.16.212.252`)
 
