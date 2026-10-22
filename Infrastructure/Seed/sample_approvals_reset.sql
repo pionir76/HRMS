@@ -7,10 +7,11 @@
 -- 실행:  psql -h localhost -U hrms_app -d hrms -v ON_ERROR_STOP=1 -f Infrastructure/Seed/sample_approvals_reset.sql
 --
 -- 되돌린 뒤 상태:
---   safety19  (1단계) 점검일지 6, 운전일지 6 + 담당 장비의 오늘치
---   manager01 (2단계) 점검일지 6, 운전일지 6, 수리일지 3, 교육훈련 2
+--   safety19  (1단계) 점검일지 6, 운전일지 6 + 담당 장비의 오늘치, 수리일지 1
+--   manager01 (2단계) 점검일지 6, 운전일지 6, 수리일지 2, 교육훈련 2
 --   chief01   (3단계) 점검일지 6, 운전일지 6, 수리일지 3, 교육훈련 2
---   test1     (2단계) 점검일지 21, 운전일지 21, 수리일지 5, 교육훈련 2
+--   test1     (2단계) 점검일지 21, 운전일지 21, 수리일지 6, 교육훈련 2
+--   (수리일지 건수는 2026-10-22 3단계 변경 기준)
 
 BEGIN;
 
@@ -77,9 +78,23 @@ WHERE "EquipmentId" BETWEEN 11 AND 19
   AND "Date" IN (DATE '2026-09-27', DATE '2026-09-26');
 
 --------------------------------------------------------------------------------
--- 3. 수리일지 — 제목 기준. 1단계는 "해당없음"이라 항상 비어 있다.
+-- 3. 수리일지 — 제목 기준. 2026-10-22부터 1단계(safety19)가 있다:
+--    압축기 오일 교체 = 미결재(safety19 대상), 그 외는 1단계 완료, 3건은 2단계까지 완료.
 --------------------------------------------------------------------------------
 UPDATE "RepairLogs" SET
+    "Level1ApproverId"   = CASE WHEN "Title" = '압축기 오일 교체' THEN NULL ELSE 31 END,
+    "Level1ApproverName" = CASE WHEN "Title" = '압축기 오일 교체' THEN NULL ELSE '윤준우' END,
+    "Level1ApprovedAt"   = CASE "Title"
+                               WHEN '냉각수 배관 보수'      THEN TIMESTAMPTZ '2026-09-27 09:00:00+09'
+                               WHEN '응축기 팬모터 교체'    THEN TIMESTAMPTZ '2026-09-27 09:10:00+09'
+                               WHEN '고압 차단 스위치 교체' THEN TIMESTAMPTZ '2026-09-19 09:00:00+09'
+                               WHEN '냉매 충전'            THEN TIMESTAMPTZ '2026-09-20 09:00:00+09'
+                               WHEN '제어반 릴레이 교체'    THEN TIMESTAMPTZ '2026-09-22 09:00:00+09'
+                               WHEN '팽창밸브 교체'        THEN TIMESTAMPTZ '2026-09-23 09:00:00+09'
+                               WHEN '냉각탑 충전재 교체'    THEN TIMESTAMPTZ '2026-09-26 09:00:00+09'
+                               WHEN '냉각탑 벨트 장력 조정' THEN TIMESTAMPTZ '2026-09-26 09:10:00+09'
+                               WHEN '유분리기 오일 보충'    THEN TIMESTAMPTZ '2026-09-28 09:00:00+09'
+                               ELSE NULL END,
     "Level2ApproverId"   = CASE WHEN "Title" IN ('고압 차단 스위치 교체','냉매 충전','제어반 릴레이 교체') THEN 3 ELSE NULL END,
     "Level2ApproverName" = CASE WHEN "Title" IN ('고압 차단 스위치 교체','냉매 충전','제어반 릴레이 교체') THEN '홍예준' ELSE NULL END,
     "Level2ApprovedAt"   = CASE "Title"

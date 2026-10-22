@@ -108,7 +108,9 @@
     "hasBrine": false, "hasVoltage": false,
     "runningCurrentThreshold": 10, "runningCurrentThresholdDecimalPlaces": 1,
     "isRunning": true, "communicationStatus": "연결됨", "hasAlarm": false,
-    "hasEquipmentPhoto": false, "hasInstallationPhoto": false
+    "hasEquipmentPhoto": false, "hasInstallationPhoto": false,
+    "compressorCount": "2", "ratedCurrent": "약 25A",
+    "registeredCompressorCount": 2
   }
 ]
 ```
@@ -116,6 +118,8 @@
 - `isRunning`/`communicationStatus`/`hasAlarm`은 관리자가 설정하는 `status`와는 별개로, 소속 압축기 데이터로부터 매 폴링 사이클 자동 집계되는 실시간 파생 상태다. **이 3개를 제외한 나머지 필드는 전부 관리자/담당자가 직접 입력하는 설정값**이다(`runningCurrentThreshold` 포함 — 값 자체는 사람이 입력하고, `isRunning`은 그 값을 근거로 시스템이 계산한 결과라는 점에 유의).
 - `runningCurrentThreshold`는 압축기 채널값과 같은 **raw 스케일**이라 그 자체로는 소수점 자리수를 알 수 없다(백엔드는 어떤 수치값도 소수점 처리를 하지 않는다는 원칙 — 5-1번 참고). `runningCurrentThresholdDecimalPlaces`는 이 장비의 1번 압축기(`sequenceNo` 최소) CH07 채널 설정의 `decimalPlaces`를 그대로 가져온 값으로, 프론트가 raw↔실제값 변환에 쓰는 힌트다. 압축기가 하나도 없는 장비면 `null`이다(현재 실제로는 모든 장비가 압축기를 1대 이상 갖고 있어 발생하지 않는다).
 - `hasEquipmentPhoto`/`hasInstallationPhoto`는 장비 이력카드용 사진(장비 사진/설치 사진) 등록 여부만 알려주는 가벼운 플래그다. 사진 원본은 여기 실리지 않고 26번(`GET /api/attachments`) API로 따로 받는다.
+- **이력카드 사양 칸 11개는 글자(`string`, 없으면 `null`)다**(2026-10-22 변경, 그 전에는 숫자): `legalRefrigerationCapacity`, `usRefrigerationCapacity`, `chargeAmount`, `compressorCount`, `compressorCapacity`, `coolingTowerCount`, `coolingTowerCapacity`, `designPressure`, `overPressureCutoff`, `ratedVoltage`, `ratedCurrent`. "100RT", "약 25", "2대"처럼 단위·설명을 붙여 적을 수 있다. 기존 숫자 값은 화면에 보이던 그대로 글자로 바뀌었다(`12.5` → `"12.5"`). 요청(22·23번)에도 글자로 보낸다 — 숫자(`12.5`)로 보내면 `400`이다. 앞뒤 공백 정리와 빈 문자열 → `null` 처리는 프론트가 한다.
+- `registeredCompressorCount`(`int`, 응답 전용, 2026-10-22 추가)는 **실제 등록된 압축기 수**다. `compressorCount`는 이력카드 사양 칸이라 글자("2대" 등)일 수 있으므로, 장비 목록의 "COMP#n" 버튼처럼 실제 압축기 수가 필요한 곳은 이 값을 쓴다.
 - 응답은 `buildingName` 오름차순 → `name` 오름차순으로 안정 정렬되어 나간다(호출할 때마다 순서가 바뀌지 않는다). 지역/시설동/설비 선택 드롭다운을 이 목록 하나로 구성할 수 있다.
 
 ## 2. `GET /api/equipments/{id}`
@@ -613,7 +617,7 @@
 
 장비 속성 수정(삭제 대신 `status`를 `"철거"`로 변경하는 것도 이 API). 압축기 목록은 이 API로 바뀌지 않는다.
 
-요청 본문은 1번 응답(`EquipmentDto`)에서 `id`/`isRunning`/`communicationStatus`/`hasAlarm`/`runningCurrentThresholdDecimalPlaces`/`hasEquipmentPhoto`/`hasInstallationPhoto`(전부 자동 계산값·응답 전용)를 뺀 나머지 전체다. 필드 목록은 [Modules/Equipment/README.md](../Modules/Equipment/README.md) 참고. 사진 자체를 올리거나 바꾸려면 이 API가 아니라 26번(`POST /api/attachments`)을 쓴다.
+요청 본문은 1번 응답(`EquipmentDto`)에서 `id`/`isRunning`/`communicationStatus`/`hasAlarm`/`isEmergencyStopped`/`runningCurrentThresholdDecimalPlaces`/`hasEquipmentPhoto`/`hasInstallationPhoto`/`registeredCompressorCount`(전부 자동 계산값·응답 전용)를 뺀 나머지 전체다. 이력카드 사양 칸 11개(`compressorCount` 등)는 글자로 보낸다(1번 참고). 필드 목록은 [Modules/Equipment/README.md](../Modules/Equipment/README.md) 참고. 사진 자체를 올리거나 바꾸려면 이 API가 아니라 26번(`POST /api/attachments`)을 쓴다.
 
 **오류**: 담당 장비가 아니면(시스템관리자 제외) `403`. 없는 `id`면 `404`. `status`가 올바른 값이 아니면 `400`. `(buildingName, name)` 조합이 다른 장비와 겹치면 `409`.
 
@@ -809,7 +813,7 @@
 
 장비별 수리/보수 작업 내역을 기록하고 결재를 받는 문서다. 점검일지(9~15번)·운전일지(16~20번)·장비 검사이력(30~34번)과 전부 별개다.
 
-**결재**: 10번의 공통 규칙을 그대로 따르되, 이 문서유형은 **안전관리원이 "해당없음"(`/` 표시)** 이라 실제 승인은 **안전관리책임자 → 안전관리총괄자 2단계**다. 안전관리원이 승인 API를 호출하면 `409`가 난다. 승인 권한은 호출자의 역할 + 담당 장비(`UserEquipment`) 기준이며, 취소는 본인 단계만·상위 미승인 시에만 가능하고 반려 개념은 없다. 시스템관리자는 결재를 못 하지만 리셋(42번)은 할 수 있다.
+**결재**: 10번의 공통 규칙을 그대로 따르며, 점검일지·운전일지와 같은 **안전관리원 → 안전관리책임자 → 안전관리총괄자 3단계**다(2026-10-22 고객사 요청으로 변경 — 그 전에는 안전관리원이 "해당없음"인 2단계였다). 안전관리원이 승인해도 수정 잠금이 걸린다. 변경 전에 결재가 진행돼 있던 수리일지는 마이그레이션(`ResetRepairLogApprovals`)으로 결재가 전부 초기화되어 새 규칙으로 처음부터 다시 결재받는다. 승인 권한은 호출자의 역할 + 담당 장비(`UserEquipment`) 기준이며, 취소는 본인 단계만·상위 미승인 시에만 가능하고 반려 개념은 없다. 시스템관리자는 결재를 못 하지만 리셋(42번)은 할 수 있다.
 
 **권한**
 
@@ -846,7 +850,7 @@
     "opinion": "동일 모델 3대 모두 점검 권장",
     "createdByUserName": "홍길동1", "createdAt": "2026-09-16T01:30:01+00:00",
     "updatedByUserName": null, "updatedAt": null,
-    "level1": { "status": "NotApplicable", "approverName": null, "approvedAt": null },
+    "level1": { "status": "Approved", "approverName": "홍길동3", "approvedAt": "2026-09-16T01:45:00+00:00" },
     "level2": { "status": "Approved", "approverName": "홍길동2", "approvedAt": "2026-09-16T02:00:00+00:00" },
     "level3": { "status": "Pending", "approverName": null, "approvedAt": null },
     "canEdit": false, "canDelete": false
@@ -854,7 +858,7 @@
 ]
 ```
 
-- `level1`~`level3`의 `status`는 점검일지와 동일한 값(`NotApplicable`/`Delegated`/`Pending`/`Approved`)이다. 이 문서는 `level1`이 항상 `NotApplicable`이라 프론트에서 `/`로 표시한다.
+- `level1`~`level3`의 `status`는 점검일지와 동일한 값(`NotApplicable`/`Delegated`/`Pending`/`Approved`)이다. 2026-10-22부터 이 문서는 세 단계 모두 결재 단계라 `Pending`/`Approved`만 나온다(그 전에는 `level1`이 항상 `NotApplicable`이었다).
 - `canEdit`/`canDelete`는 **지금 요청한 사용자**가 이 문서를 수정/삭제할 수 있는지를 서버가 위 권한 표대로 계산해서 내려주는 값이다. 조회한 사용자에 따라 값이 달라진다(응답 전용 필드). 프론트는 이 값만 보고 버튼 표시 여부를 정하면 된다.
 
 ## 36. `GET /api/repair-logs/{id}`
@@ -905,7 +909,7 @@
 
 결재 승인. 호출자의 역할로 결재 단계가 자동 결정된다(별도 파라미터 없음). 응답은 35번과 같은 형식.
 
-**오류**: 결재 대상 역할이 아니거나(시스템관리자·일반관리원) 그 장비의 담당자가 아니면 `403`. 지금 승인할 수 없는 단계면(안전관리원처럼 해당없음 단계, 이미 승인됨, 이전 단계 미완료) `409`. 없는 `id`면 `404`.
+**오류**: 결재 대상 역할이 아니거나(시스템관리자·일반관리원) 그 장비의 담당자가 아니면 `403`. 지금 승인할 수 없는 단계면(이미 승인됨, 이전 단계 미완료) `409`. 없는 `id`면 `404`.
 
 ## 41. `POST /api/repair-logs/{id}/approve/cancel`
 
@@ -1385,7 +1389,7 @@
 | 조건 | 설명 |
 |---|---|
 | 내 역할에 결재 레벨이 있다 | 안전관리원=1단계, 안전관리책임자=2단계, 안전관리총괄자=3단계. `시스템관리자`·`일반관리원`은 대상이 없어 전 그룹 0건(403이 아님) |
-| 그 문서 종류에서 내 레벨이 결재 단계다 | 예: 수리일지·교육훈련의 1단계는 "해당없음"이라 안전관리원에게는 안 보인다 |
+| 그 문서 종류에서 내 레벨이 결재 단계다 | 예: 교육훈련의 1단계는 "해당없음"이라 안전관리원에게는 안 보인다. 수리일지는 2026-10-22부터 1단계가 생겨 안전관리원에게도 보인다 |
 | 내 단계가 아직 미결재다 | 누군가 내 역할의 칸을 이미 결재했으면 대상이 아니다 |
 | 앞 단계가 전부 끝났다 | 1단계 미결재면 2·3단계 사용자에게는 아직 안 보인다 |
 | 내 담당 장비다 | `UserEquipment` 기준. **교육훈련만 예외**(장비와 무관한 전사 문서라 역할만 본다) |
@@ -1436,7 +1440,7 @@
 |---|---|---|
 | `NotFound` | 문서를 찾을 수 없습니다. | 그 사이 삭제됐거나 잘못된 `id` |
 | `Forbidden` | 담당 장비가 아닙니다. | 내 `UserEquipment`에 없는 장비의 문서 |
-| `Forbidden` | {역할}은(는) {문서종류}의 결재 대상이 아닙니다. | 예: 안전관리원이 수리일지를 보낸 경우 — 그 요청의 모든 id가 이 사유로 실패한다 |
+| `Forbidden` | {역할}은(는) {문서종류}의 결재 대상이 아닙니다. | 예: 안전관리원이 교육훈련을 보낸 경우 — 그 요청의 모든 id가 이 사유로 실패한다 |
 | `AlreadyApproved` | 이미 결재된 문서입니다. | 내 단계를 누군가 이미 결재함 |
 | `WrongOrder` | 이전 단계 결재가 아직 끝나지 않았습니다. | 하위 단계가 아직 안 끝남 |
 

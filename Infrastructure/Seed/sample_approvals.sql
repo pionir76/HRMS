@@ -15,7 +15,8 @@
 --   (A) 미결재          -> 1단계(safety19)에게 보임
 --   (B) 1단계 완료       -> 2단계(manager01)에게 보임
 --   (C) 1+2단계 완료     -> 3단계(chief01)에게 보임
--- 수리일지/교육훈련은 1단계가 "해당없음"이라 (B)=미결재, (C)=2단계 완료다.
+-- 교육훈련은 1단계가 "해당없음"이라 (B)=미결재, (C)=2단계 완료다.
+-- 수리일지는 2026-10-22부터 점검일지와 같은 3단계라 (A)(B)(C)를 그대로 쓴다.
 
 BEGIN;
 
@@ -82,37 +83,39 @@ WHERE NOT EXISTS (
     SELECT 1 FROM "OperationLogs" o WHERE o."EquipmentId" = e AND o."Date" = d.day);
 
 --------------------------------------------------------------------------------
--- 3. 수리일지 — 6건. 1단계가 "해당없음"이라 manager01(2단계)부터 결재한다.
+-- 3. 수리일지 — 6건. 점검일지와 같은 3단계(2026-10-22부터)라 (A) 1건, (B) 2건, (C) 3건.
 --    장비 23번에 같은 날 2건을 넣어 subtitle의 제목 구분이 보이게 한다.
 --------------------------------------------------------------------------------
 INSERT INTO "RepairLogs"
     ("EquipmentId","Title","PerformedAt","Location","PerformedBy","Target",
      "StateBefore","StateAfter","Result","FailureCause","PreventiveAction","Opinion",
      "CreatedByUserId","CreatedByUserName","CreatedAt",
+     "Level1ApproverId","Level1ApproverName","Level1ApprovedAt",
      "Level2ApproverId","Level2ApproverName","Level2ApprovedAt")
 SELECT * FROM (VALUES
-    -- (B) 미결재 — manager01 대상
+    -- (A) 미결재 — safety19 대상
     (4,  '압축기 오일 교체',      TIMESTAMPTZ '2026-09-24 10:00:00+09', '기계실', '한국냉동(주)', '1호기 압축기',
      '오일 오염', '오일 교체 완료', '정상 가동', '사용 시간 초과', '6개월 주기 교체', NULL,
-     31, '윤준우', TIMESTAMPTZ '2026-09-24 17:00:00+09', NULL, NULL, NULL),
+     31, '윤준우', TIMESTAMPTZ '2026-09-24 17:00:00+09', NULL, NULL, NULL, NULL, NULL, NULL),
+    -- (B) 1단계 완료 — manager01 대상
     (23, '냉각수 배관 보수',      TIMESTAMPTZ '2026-09-26 09:30:00+09', '옥상', '대성설비', '냉각수 배관',
      '배관 누수', '용접 보수', '누수 해소', '용접부 부식', '방청 도장 주기 단축', NULL,
-     31, '윤준우', TIMESTAMPTZ '2026-09-26 18:00:00+09', NULL, NULL, NULL),
+     31, '윤준우', TIMESTAMPTZ '2026-09-26 18:00:00+09', 31, '윤준우', TIMESTAMPTZ '2026-09-27 09:00:00+09', NULL, NULL, NULL),
     (23, '응축기 팬모터 교체',    TIMESTAMPTZ '2026-09-26 15:00:00+09', '옥상', '대성설비', '응축기 팬모터',
      '베어링 소음', '모터 교체', '소음 해소', '베어링 마모', '분기 점검 추가', NULL,
-     31, '윤준우', TIMESTAMPTZ '2026-09-26 18:10:00+09', NULL, NULL, NULL),
-    -- (C) 2단계 완료 — chief01 대상
+     31, '윤준우', TIMESTAMPTZ '2026-09-26 18:10:00+09', 31, '윤준우', TIMESTAMPTZ '2026-09-27 09:10:00+09', NULL, NULL, NULL),
+    -- (C) 1+2단계 완료 — chief01 대상
     (5,  '고압 차단 스위치 교체',  TIMESTAMPTZ '2026-09-18 13:00:00+09', '기계실', '한국냉동(주)', 'HPC',
      '접점 불량', '스위치 교체', '정상 작동', '접점 소손', '연 1회 교체', NULL,
-     31, '윤준우', TIMESTAMPTZ '2026-09-18 17:30:00+09', 3, '홍예준', TIMESTAMPTZ '2026-09-19 11:00:00+09'),
+     31, '윤준우', TIMESTAMPTZ '2026-09-18 17:30:00+09', 31, '윤준우', TIMESTAMPTZ '2026-09-19 09:00:00+09', 3, '홍예준', TIMESTAMPTZ '2026-09-19 11:00:00+09'),
     (7,  '냉매 충전',              TIMESTAMPTZ '2026-09-19 11:00:00+09', '기계실', '한국냉동(주)', '냉매 배관',
      '냉매 부족', '충전 완료', '정상 냉각', '미세 누설', '누설 검사 강화', NULL,
-     31, '윤준우', TIMESTAMPTZ '2026-09-19 16:00:00+09', 3, '홍예준', TIMESTAMPTZ '2026-09-20 10:00:00+09'),
+     31, '윤준우', TIMESTAMPTZ '2026-09-19 16:00:00+09', 31, '윤준우', TIMESTAMPTZ '2026-09-20 09:00:00+09', 3, '홍예준', TIMESTAMPTZ '2026-09-20 10:00:00+09'),
     (32, '제어반 릴레이 교체',    TIMESTAMPTZ '2026-09-21 14:00:00+09', '제어실', '사내 정비팀', '제어반 릴레이',
      '동작 불안정', '릴레이 교체', '정상 제어', '경년 열화', '5년 주기 교체', NULL,
-     31, '윤준우', TIMESTAMPTZ '2026-09-21 18:00:00+09', 3, '홍예준', TIMESTAMPTZ '2026-09-22 09:30:00+09')
+     31, '윤준우', TIMESTAMPTZ '2026-09-21 18:00:00+09', 31, '윤준우', TIMESTAMPTZ '2026-09-22 09:00:00+09', 3, '홍예준', TIMESTAMPTZ '2026-09-22 09:30:00+09')
 ) AS v(eq, title, performed, loc, by, target, before, after, res, cause, prevent, opinion,
-       cb_id, cb_name, created, l2_id, l2_name, l2_at)
+       cb_id, cb_name, created, l1_id, l1_name, l1_at, l2_id, l2_name, l2_at)
 WHERE NOT EXISTS (
     SELECT 1 FROM "RepairLogs" r WHERE r."EquipmentId" = v.eq AND r."Title" = v.title);
 
@@ -156,8 +159,8 @@ UNION ALL SELECT '교육훈련', count(*) FROM "TrainingLogs";
 -- 5. test1 계정(안전관리책임자 = 2단계) 전용 결재 대상
 --    담당 장비 11~19번(PT 배기환경시험동 / PT 환경선행연구동 9대)을 쓴다 —
 --    위 safety19 시나리오(장비 4·5·7·23·24·32)와 겹치지 않아 서로 영향이 없다.
---    2단계가 보려면 1단계가 끝나 있어야 하므로 점검·운전일지는 Level1을 채워둔다.
---    수리일지는 1단계가 "해당없음"이라 미결재 상태 그대로 2단계 대상이 된다.
+--    2단계가 보려면 1단계가 끝나 있어야 하므로 점검·운전·수리일지는 Level1을 채워둔다
+--    (수리일지는 2026-10-22부터 1단계가 생겼다).
 --------------------------------------------------------------------------------
 BEGIN;
 
@@ -191,26 +194,27 @@ CROSS JOIN (VALUES
 WHERE NOT EXISTS (
     SELECT 1 FROM "OperationLogs" o WHERE o."EquipmentId" = e AND o."Date" = d.day);
 
--- 수리일지: 4건 (미결재 = 2단계 대상). 장비 14번에 같은 날 2건을 넣어 제목 구분을 본다.
+-- 수리일지: 4건 (1단계 완료 = 2단계 대상). 장비 14번에 같은 날 2건을 넣어 제목 구분을 본다.
 INSERT INTO "RepairLogs"
     ("EquipmentId","Title","PerformedAt","Location","PerformedBy","Target",
      "StateBefore","StateAfter","Result","FailureCause","PreventiveAction","Opinion",
-     "CreatedByUserId","CreatedByUserName","CreatedAt")
+     "CreatedByUserId","CreatedByUserName","CreatedAt",
+     "Level1ApproverId","Level1ApproverName","Level1ApprovedAt")
 SELECT * FROM (VALUES
     (11, '팽창밸브 교체',        TIMESTAMPTZ '2026-09-22 09:00:00+09', '기계실', '한국냉동(주)', '팽창밸브',
      '과열도 불안정', '밸브 교체', '정상 제어', '밸브 고착', '연 1회 점검', NULL,
-     31, '윤준우', TIMESTAMPTZ '2026-09-22 17:00:00+09'),
+     31, '윤준우', TIMESTAMPTZ '2026-09-22 17:00:00+09', 31, '윤준우', TIMESTAMPTZ '2026-09-23 09:00:00+09'),
     (14, '냉각탑 충전재 교체',   TIMESTAMPTZ '2026-09-25 09:00:00+09', '옥상', '대성설비', '냉각탑 충전재',
      '스케일 고착', '충전재 교체', '냉각 성능 회복', '수질 관리 미흡', '수처리 주기 단축', NULL,
-     31, '윤준우', TIMESTAMPTZ '2026-09-25 18:00:00+09'),
+     31, '윤준우', TIMESTAMPTZ '2026-09-25 18:00:00+09', 31, '윤준우', TIMESTAMPTZ '2026-09-26 09:00:00+09'),
     (14, '냉각탑 벨트 장력 조정', TIMESTAMPTZ '2026-09-25 14:00:00+09', '옥상', '사내 정비팀', '냉각탑 송풍기 벨트',
      '벨트 슬립', '장력 조정', '소음 감소', '벨트 이완', '월 1회 점검', NULL,
-     31, '윤준우', TIMESTAMPTZ '2026-09-25 18:20:00+09'),
+     31, '윤준우', TIMESTAMPTZ '2026-09-25 18:20:00+09', 31, '윤준우', TIMESTAMPTZ '2026-09-26 09:10:00+09'),
     (18, '유분리기 오일 보충',   TIMESTAMPTZ '2026-09-27 10:00:00+09', '기계실', '한국냉동(주)', '유분리기',
      '오일 레벨 저하', '오일 보충', '정상 가동', '미세 누유', '누유부 점검 강화', NULL,
-     31, '윤준우', TIMESTAMPTZ '2026-09-27 16:00:00+09')
+     31, '윤준우', TIMESTAMPTZ '2026-09-27 16:00:00+09', 31, '윤준우', TIMESTAMPTZ '2026-09-28 09:00:00+09')
 ) AS v(eq, title, performed, loc, by, target, before, after, res, cause, prevent, opinion,
-       cb_id, cb_name, created)
+       cb_id, cb_name, created, l1_id, l1_name, l1_at)
 WHERE NOT EXISTS (
     SELECT 1 FROM "RepairLogs" r WHERE r."EquipmentId" = v.eq AND r."Title" = v.title);
 

@@ -27,14 +27,17 @@ public static class ApprovalDocuments
 {
     public static readonly ApprovalDocumentType[] All = Enum.GetValues<ApprovalDocumentType>();
 
-    // 점검일지/운전일지는 안전관리원부터 3단계 전부, 수리일지/교육훈련은 안전관리원 단계가
-    // 없다(해당없음). 바꾸면 해당 문서의 단건 결재 API와 일괄 결재가 같이 따라간다.
+    // 점검일지/운전일지/수리일지는 안전관리원부터 3단계 전부, 교육훈련은 안전관리원 단계가
+    // 없다(해당없음). 수리일지는 원래 교육훈련처럼 해당없음이었다가 2026-10-22 고객사 요청으로
+    // 3단계가 됐다. 바꾸면 해당 문서의 단건 결재 API와 일괄 결재 판정이 같이 따라가지만,
+    // ApprovalsController의 결재 대기 필터(Pending)는 SQL 번역 때문에 문서유형마다 따로 써 있어서
+    // 그쪽도 함께 고쳐야 한다.
     public static ApprovalLevelModes ModesFor(ApprovalDocumentType type) => type switch
     {
         ApprovalDocumentType.InspectionLog => new(ApprovalLevelMode.Required, ApprovalLevelMode.Required, ApprovalLevelMode.Required),
         ApprovalDocumentType.OperationLog => new(ApprovalLevelMode.Required, ApprovalLevelMode.Required, ApprovalLevelMode.Required),
         ApprovalDocumentType.TrainingLog => new(ApprovalLevelMode.NotApplicable, ApprovalLevelMode.Required, ApprovalLevelMode.Required),
-        ApprovalDocumentType.RepairLog => new(ApprovalLevelMode.NotApplicable, ApprovalLevelMode.Required, ApprovalLevelMode.Required),
+        ApprovalDocumentType.RepairLog => new(ApprovalLevelMode.Required, ApprovalLevelMode.Required, ApprovalLevelMode.Required),
         _ => throw new ArgumentOutOfRangeException(nameof(type))
     };
 

@@ -2,7 +2,7 @@
 
 결재 판정 공용 로직 + 일괄 결재 API 모듈. DB 테이블이나 엔티티는 없다 — 결재 데이터 자체는 각 문서 엔티티에 Level1~3(ApproverId/ApproverName/ApprovedAt) 인라인 컬럼으로 직접 저장하고, 이 모듈은 그 데이터에 적용할 순서/권한 판정 규칙만 공유한다.
 
-현재 이 규칙을 쓰는 문서: 점검일지(`InspectionReport`, 3단계 전부 Required), 운전일지(`OperationReport`), 수리일지(`RepairLog`, 레벨1 해당없음), 교육훈련 일지(`TrainingLog`, 레벨1 해당없음 + 장비 무관).
+현재 이 규칙을 쓰는 문서: 점검일지(`InspectionReport`, 3단계 전부 Required), 운전일지(`OperationReport`), 수리일지(`RepairLog`, 3단계 전부 Required — 2026-10-22까지는 레벨1 해당없음), 교육훈련 일지(`TrainingLog`, 레벨1 해당없음 + 장비 무관).
 
 문서유형마다 별도 Approval 테이블(문서유형+문서ID 다형성 FK)을 두지 않기로 한 이유, 3단계 고정/전결(Delegated)/해당없음(NotApplicable) 개념은 [api-manual.md](../../Doc/api-manual.md)의 "결재 시스템" 절 참고.
 

@@ -7,9 +7,9 @@ namespace HRMS.Modules.RepairLog.Models;
 // 운전일지(장비+날짜)처럼 유니크 제약을 두지 않는다.
 //
 // 결재 데이터(Level1~3)는 별도 테이블 없이 여기에 인라인 컬럼으로 직접 둔다(점검일지/운전일지와
-// 동일한 방식 — Modules/Approval/README.md 참고). 이 문서유형은 Level1(안전관리원)이 "해당없음"
-// 이라 Level1 컬럼은 실제로 채워지지 않지만, 공용 결재 로직(ApprovalLevels가 1~3을 그대로
-// 훑는다)과 스키마 모양을 다른 문서와 같게 유지하려고 컬럼 자체는 그대로 둔다.
+// 동일한 방식 — Modules/Approval/README.md 참고). Level1~3 전부 결재 단계다(안전관리원 →
+// 책임자 → 총괄자). 원래 Level1(안전관리원)은 "해당없음"이라 비어 있었는데, 2026-10-22 고객사
+// 요청으로 점검일지와 같은 3단계가 됐다 — 컬럼을 처음부터 둬서 스키마는 바꿀 필요가 없었다.
 //
 // ApproverName/CreatedByUserName 등은 그 시점 이름 스냅샷이다 — 나중에 사용자 이름이나 역할이
 // 바뀌어도 이미 찍힌 기록은 그대로 남는다.
@@ -39,7 +39,7 @@ public class RepairLog : IApprovable
     public string? UpdatedByUserName { get; set; }
     public DateTimeOffset? UpdatedAt { get; set; }
 
-    public int? Level1ApproverId { get; set; } // 안전관리원 — 이 문서유형에서는 "해당없음"이라 항상 비어있다
+    public int? Level1ApproverId { get; set; } // 안전관리원
     public string? Level1ApproverName { get; set; }
     public DateTimeOffset? Level1ApprovedAt { get; set; }
 

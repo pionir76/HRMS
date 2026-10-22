@@ -106,7 +106,7 @@ public class ApprovalsController(AppDbContext db) : ControllerBase
         var succeeded = new List<int>();
         var failed = new List<BulkApprovalFailureDto>();
 
-        // 내 레벨이 이 문서유형의 결재 단계가 아니면(예: 안전관리원 + 수리일지) 전부 실패다.
+        // 내 레벨이 이 문서유형의 결재 단계가 아니면(예: 안전관리원 + 교육훈련) 전부 실패다.
         if (modes[level] != ApprovalLevelMode.Required)
         {
             foreach (int id in request.Ids.Distinct())
@@ -247,8 +247,9 @@ public class ApprovalsController(AppDbContext db) : ControllerBase
     //--------------------------------------------------------------------------------//
     // "내 단계가 미승인 + 이전 단계 완료" 필터. ApprovalLevels와 같은 판정이지만, 이건 SQL로
     // 번역되어야 해서 엔티티 타입마다 따로 쓴다(인터페이스 속성은 EF가 번역하지 못한다).
-    // 1단계는 앞 단계가 없고, 2단계 앞의 1단계는 점검·운전일지만 Required이며(수리·교육은
+    // 1단계는 앞 단계가 없고, 2단계 앞의 1단계는 점검·운전·수리일지만 Required이며(교육훈련은
     // 해당없음 = 이미 완료로 본다), 3단계 앞의 2단계는 네 문서유형 모두 Required다.
+    // ApprovalDocuments.ModesFor를 바꾸면 여기도 같이 맞춰야 한다.
     //--------------------------------------------------------------------------------//
     private static IQueryable<InspectionLog> Pending(IQueryable<InspectionLog> q, int level) => level switch
     {
@@ -264,13 +265,15 @@ public class ApprovalsController(AppDbContext db) : ControllerBase
         _ => q.Where(l => l.Level3ApprovedAt == null && l.Level2ApprovedAt != null)
     };
 
-    // 수리일지/교육훈련은 1단계가 "해당없음"이라 2단계가 곧 첫 단계다.
+    // 수리일지는 2026-10-22부터 점검·운전일지와 같은 3단계다(그 전에는 교육훈련처럼 1단계 해당없음).
     private static IQueryable<RepairLog.Models.RepairLog> Pending(IQueryable<RepairLog.Models.RepairLog> q, int level) => level switch
     {
-        2 => q.Where(l => l.Level2ApprovedAt == null),
+        1 => q.Where(l => l.Level1ApprovedAt == null),
+        2 => q.Where(l => l.Level2ApprovedAt == null && l.Level1ApprovedAt != null),
         _ => q.Where(l => l.Level3ApprovedAt == null && l.Level2ApprovedAt != null)
     };
 
+    // 교육훈련은 1단계가 "해당없음"이라 2단계가 곧 첫 단계다.
     private static IQueryable<TrainingLog.Models.TrainingLog> Pending(IQueryable<TrainingLog.Models.TrainingLog> q, int level) => level switch
     {
         2 => q.Where(l => l.Level2ApprovedAt == null),

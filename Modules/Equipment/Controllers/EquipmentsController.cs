@@ -48,7 +48,8 @@ public class EquipmentsController(AppDbContext db) : ControllerBase
         var ids = entities.Select(e => e.Id);
         var decimalPlaces = await GetRunningCurrentDecimalPlacesAsync(ids);
         var photoFlags = await GetPhotoFlagsAsync(ids);
-        return Ok(entities.Select(e => ToDto(e, DecimalPlacesOrNull(decimalPlaces, e.Id), photoFlags[e.Id])).ToList());
+        var compressorCounts = await GetCompressorCountsAsync(ids);
+        return Ok(entities.Select(e => ToDto(e, DecimalPlacesOrNull(decimalPlaces, e.Id), photoFlags[e.Id], compressorCounts[e.Id])).ToList());
     }
 
     // GET api/equipments/status — 실시간 현황 5초 갱신용 경량 상태(장비 + 소속 압축기 상태만).
@@ -90,7 +91,8 @@ public class EquipmentsController(AppDbContext db) : ControllerBase
 
         var decimalPlaces = await GetRunningCurrentDecimalPlacesAsync([id]);
         var photoFlags = await GetPhotoFlagsAsync([id]);
-        return Ok(ToDto(entity, DecimalPlacesOrNull(decimalPlaces, id), photoFlags[id]));
+        var compressorCounts = await GetCompressorCountsAsync([id]);
+        return Ok(ToDto(entity, DecimalPlacesOrNull(decimalPlaces, id), photoFlags[id], compressorCounts[id]));
     }
 
     // GET api/equipments/{id}/compressors — 해당 장비 소속 압축기 목록(통신/경보 상태 포함)
@@ -149,7 +151,8 @@ public class EquipmentsController(AppDbContext db) : ControllerBase
 
         var decimalPlaces = await GetRunningCurrentDecimalPlacesAsync([equipment.Id]);
         var photoFlags = await GetPhotoFlagsAsync([equipment.Id]);
-        return Ok(ToDto(equipment, DecimalPlacesOrNull(decimalPlaces, equipment.Id), photoFlags[equipment.Id]));
+        var compressorCounts = await GetCompressorCountsAsync([equipment.Id]);
+        return Ok(ToDto(equipment, DecimalPlacesOrNull(decimalPlaces, equipment.Id), photoFlags[equipment.Id], compressorCounts[equipment.Id]));
     }
 
     //---------------------------------------------------------------------------//
@@ -177,7 +180,8 @@ public class EquipmentsController(AppDbContext db) : ControllerBase
 
         var decimalPlaces = await GetRunningCurrentDecimalPlacesAsync([id]);
         var photoFlags = await GetPhotoFlagsAsync([id]);
-        return Ok(ToDto(equipment, DecimalPlacesOrNull(decimalPlaces, id), photoFlags[id]));
+        var compressorCounts = await GetCompressorCountsAsync([id]);
+        return Ok(ToDto(equipment, DecimalPlacesOrNull(decimalPlaces, id), photoFlags[id], compressorCounts[id]));
     }
 
     //---------------------------------------------------------------------------//
@@ -225,6 +229,22 @@ public class EquipmentsController(AppDbContext db) : ControllerBase
         return ids.ToDictionary(id => id, id => (
             slotsByEquipment.Any(s => s.OwnerId == id && s.Slot == "equipment"),
             slotsByEquipment.Any(s => s.OwnerId == id && s.Slot == "installation")));
+    }
+
+    //---------------------------------------------------------------------------//
+    // 장비별 실제 등록된 압축기 수(2026-10-22 추가). CompressorCount(이력카드 사양 칸)가 글자로
+    // 바뀌어서, 장비 목록의 "COMP#n" 버튼처럼 실제 압축기 수가 필요한 곳은 이 값을 쓴다.
+    //---------------------------------------------------------------------------//
+    private async Task<Dictionary<int, int>> GetCompressorCountsAsync(IEnumerable<int> equipmentIds)
+    {
+        var ids = equipmentIds.ToList();
+        var counts = await db.Compressors
+            .Where(c => ids.Contains(c.EquipmentId))
+            .GroupBy(c => c.EquipmentId)
+            .Select(g => new { EquipmentId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.EquipmentId, x => x.Count);
+
+        return ids.ToDictionary(id => id, id => counts.GetValueOrDefault(id));
     }
 
     // 요청 DTO의 필드를 엔티티에 그대로 옮겨 담는다(자동 계산값 3개는 건드리지 않음).
@@ -279,7 +299,7 @@ public class EquipmentsController(AppDbContext db) : ControllerBase
 
     // enum -> 문자열 변환은 항상 엔티티를 메모리로 가져온 뒤(ToListAsync 등) 수행한다.
     // EF Core가 enum.ToString()을 SQL로 안정적으로 번역하지 못할 수 있어서다.
-    private static EquipmentDto ToDto(Models.Equipment e, int? runningCurrentThresholdDecimalPlaces, (bool HasEquipmentPhoto, bool HasInstallationPhoto) photoFlags) => new(
+    private static EquipmentDto ToDto(Models.Equipment e, int? runningCurrentThresholdDecimalPlaces, (bool HasEquipmentPhoto, bool HasInstallationPhoto) photoFlags, int registeredCompressorCount) => new(
         e.Id, e.Region, e.BuildingNumber, e.BuildingName, e.Location, e.Name, e.Status.ToString(),
         e.ModelName, e.Manufacturer, e.PermitNumber, e.ManagementNumber,
         e.LegalRefrigerationCapacity, e.UsRefrigerationCapacity, e.Refrigerant, e.ChargeAmount,
@@ -292,5 +312,5 @@ public class EquipmentsController(AppDbContext db) : ControllerBase
         e.HasVoltage, e.VoltageMin, e.VoltageMax,
         e.RunningCurrentThreshold, runningCurrentThresholdDecimalPlaces,
         e.IsRunning, e.CommunicationStatus.ToString(), e.AlarmStatus.IsConfirmedAlarm(), e.IsEmergencyStopped,
-        photoFlags.HasEquipmentPhoto, photoFlags.HasInstallationPhoto);
+        photoFlags.HasEquipmentPhoto, photoFlags.HasInstallationPhoto, registeredCompressorCount);
 }

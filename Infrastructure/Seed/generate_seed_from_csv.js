@@ -64,7 +64,7 @@ const eqVals = eq.map(e => {
   const status = NON_OPERATIONAL.has(id) ? 1 : 0; // 1=미운영, 0=운영
   return "  (" + [
     id, S(e["지역"]), S(e["건물번호"] === "-" ? "" : e["건물번호"]), S(e["건물이름"]), S(e["위치"]), S(e["장비명"]), status,
-    S(e["관리번호 (KGS)"]), N(e["압축기수량"]),
+    S(e["관리번호 (KGS)"]), S(e["압축기수량"]), // CompressorCount는 글자 칸(2026-10-22)
     B(e["냉각수유무"]), R(e["냉각수입구min"]), R(e["냉각수입구max"]), R(e["냉각수출구min"]), R(e["냉각수출구max"]),
     B(e["브라인유무"]), R(e["브라인입구min"]), R(e["브라인입구max"]), R(e["브라인출구min"]), R(e["브라인출구max"]),
     B(e["전압유무"]), R(e["전압min"]), R(e["전압max"]),

@@ -31,37 +31,42 @@ public class Equipment
 
     //----------------------------------------------------------------------------------//
     // 냉동/냉매
+    //
+    // 이력카드 사양 칸(냉동능력·충전량·압축기/냉각탑 수량·용량·설계압력·HPC·정격전압/전류 11개)은
+    // 숫자였다가 **글자(string)로 바꿨다**(2026-10-22 고객사 요청 — "100RT", "약 25", "2대"처럼
+    // 단위나 설명을 붙여 적고 싶다고 함). 이 값으로 계산·비교하는 로직은 없다 — 화면 표시용이다.
     //----------------------------------------------------------------------------------//
-    public decimal? LegalRefrigerationCapacity { get; set; } // 냉동능력(법정)
-    public decimal? UsRefrigerationCapacity { get; set; } // 냉동능력(US)
+    public string? LegalRefrigerationCapacity { get; set; } // 냉동능력(법정)
+    public string? UsRefrigerationCapacity { get; set; } // 냉동능력(US)
     public string? Refrigerant { get; set; } // 사용냉매
-    public decimal? ChargeAmount { get; set; } // 냉매충전량
+    public string? ChargeAmount { get; set; } // 냉매충전량
 
     //----------------------------------------------------------------------------------//
     // 압축기 — CompressorCount는 표준 사양값이다. 실제 Compressor 테이블 행 수(COUNT)와는
     // 별개로 관리한다 — 현장 실측이 사양과 다를 수 있어서, 속성값 자체를 그대로 신뢰한다(사용자 결정).
+    // 실제 등록된 압축기 수가 필요하면 EquipmentDto.RegisteredCompressorCount를 쓴다(글자라 숫자로 못 쓴다).
     //----------------------------------------------------------------------------------//
     public string? CompressorManufacturer { get; set; } // 압축기제조사
     public string? CompressorType { get; set; } // 압축기형식
-    public int? CompressorCount { get; set; } // 압축기수량
-    public decimal? CompressorCapacity { get; set; } // 압축기용량
+    public string? CompressorCount { get; set; } // 압축기수량
+    public string? CompressorCapacity { get; set; } // 압축기용량
 
     //----------------------------------------------------------------------------------//
     // 냉각탑
     //----------------------------------------------------------------------------------//
     public string? CoolingTowerManufacturer { get; set; } // 냉각탑제조사
     public string? CoolingTowerType { get; set; } // 냉각탑형식
-    public int? CoolingTowerCount { get; set; } // 냉각탑수량
-    public decimal? CoolingTowerCapacity { get; set; } // 냉각탑용량
+    public string? CoolingTowerCount { get; set; } // 냉각탑수량
+    public string? CoolingTowerCapacity { get; set; } // 냉각탑용량
 
     public string? CondenserType { get; set; } // 응축기형식
     public string? EvaporatorType { get; set; } // 증발기형식
 
-    public decimal? DesignPressure { get; set; } // 설계압력
-    public decimal? OverPressureCutoff { get; set; } // 과압차단압력(HPC)
+    public string? DesignPressure { get; set; } // 설계압력
+    public string? OverPressureCutoff { get; set; } // 과압차단압력(HPC)
 
-    public decimal? RatedVoltage { get; set; } // 정격전압
-    public decimal? RatedCurrent { get; set; } // 정격전류
+    public string? RatedVoltage { get; set; } // 정격전압
+    public string? RatedCurrent { get; set; } // 정격전류
 
     public string? SafetyValve { get; set; } // 안전밸브(위치/구경/수량/작동압력 등 복합 서술형 — 단일 숫자값이 아니라 자유 텍스트)
 

@@ -49,10 +49,10 @@
 
 | 한글명         | 필드명                       | 타입       |
 | -------------- | ---------------------------- | ---------- |
-| 냉동능력(법정) | `LegalRefrigerationCapacity` | `decimal?` |
-| 냉동능력(US)   | `UsRefrigerationCapacity`    | `decimal?` |
+| 냉동능력(법정) | `LegalRefrigerationCapacity` | `string?`  |
+| 냉동능력(US)   | `UsRefrigerationCapacity`    | `string?`  |
 | 사용냉매       | `Refrigerant`                | `string?`  |
-| 냉매충전량     | `ChargeAmount`               | `decimal?` |
+| 냉매충전량     | `ChargeAmount`               | `string?`  |
 
 ### 압축기 / 냉각탑
 
@@ -60,12 +60,12 @@
 | ------------ | -------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 압축기제조사 | `CompressorManufacturer`   | `string?`  |                                                                                                                                                                                                        |
 | 압축기형식   | `CompressorType`           | `string?`  |                                                                                                                                                                                                        |
-| 압축기수량   | `CompressorCount`          | `int?`     | **표준 사양값이다.** 실제 `Compressor` 테이블 행 수(COUNT)와는 무관하게 별도로 관리한다 — 장비 이력카드 조회에 쓰이며, 현장 실측이 사양과 다를 수 있어도 이 속성값 자체를 그대로 신뢰한다(사용자 결정) |
-| 압축기용량   | `CompressorCapacity`       | `decimal?` |                                                                                                                                                                                                        |
+| 압축기수량   | `CompressorCount`          | `string?`  | **표준 사양값이다.** 실제 `Compressor` 테이블 행 수(COUNT)와는 무관하게 별도로 관리한다 — 장비 이력카드 조회에 쓰이며, 현장 실측이 사양과 다를 수 있어도 이 속성값 자체를 그대로 신뢰한다(사용자 결정). 글자라 실제 압축기 수가 필요하면 응답 전용 `RegisteredCompressorCount`를 쓴다 |
+| 압축기용량   | `CompressorCapacity`       | `string?`  |                                                                                                                                                                                                        |
 | 냉각탑제조사 | `CoolingTowerManufacturer` | `string?`  |                                                                                                                                                                                                        |
 | 냉각탑형식   | `CoolingTowerType`         | `string?`  |                                                                                                                                                                                                        |
-| 냉각탑수량   | `CoolingTowerCount`        | `int?`     |                                                                                                                                                                                                        |
-| 냉각탑용량   | `CoolingTowerCapacity`     | `decimal?` |                                                                                                                                                                                                        |
+| 냉각탑수량   | `CoolingTowerCount`        | `string?`  |                                                                                                                                                                                                        |
+| 냉각탑용량   | `CoolingTowerCapacity`     | `string?`  |                                                                                                                                                                                                        |
 
 ### 기타 설비 사양
 
@@ -73,12 +73,14 @@
 | ----------------- | -------------------- | ---------- |
 | 응축기형식        | `CondenserType`      | `string?`  |
 | 증발기형식        | `EvaporatorType`     | `string?`  |
-| 설계압력          | `DesignPressure`     | `decimal?` |
-| 과압차단압력(HPC) | `OverPressureCutoff` | `decimal?` |
-| 정격전압          | `RatedVoltage`       | `decimal?` |
-| 정격전류          | `RatedCurrent`       | `decimal?` |
+| 설계압력          | `DesignPressure`     | `string?`  |
+| 과압차단압력(HPC) | `OverPressureCutoff` | `string?`  |
+| 정격전압          | `RatedVoltage`       | `string?`  |
+| 정격전류          | `RatedCurrent`       | `string?`  |
 | 안전밸브          | `SafetyValve`        | `string?`  |
 | 기타사항          | `Notes`              | `string?`  |
+
+**이력카드 사양 칸은 숫자가 아니라 글자(`string?`)다**(2026-10-22 고객사 요청으로 변경). 냉동능력(법정/US)·냉매충전량·압축기수량/용량·냉각탑수량/용량·설계압력·과압차단압력·정격전압/전류 11개는 원래 숫자였지만, "100RT", "약 25", "2대"처럼 단위나 설명을 붙여 적을 수 있게 글자로 바꿨다. 이 값으로 계산·비교하는 로직은 없다(화면 표시용). 기존 숫자 값은 마이그레이션 `EquipmentSpecFieldsToText`가 화면에 보이던 그대로(`12.50` → `"12.5"`) 글자로 옮겼다. 앞뒤 공백 정리와 빈 문자열 → `null` 처리는 프론트가 한다. 길이 제한은 다른 글자 칸(제조사·형식 등)과 같이 없다.
 
 `SafetyValve`는 위치/구경/수량/작동압력을 함께 적는 복합 서술형 항목이라(실물 이력카드 라벨: "안전밸브(위치/구경/수량/작동압력)") 단일 숫자값이 아니라 자유 텍스트다.
 
@@ -129,3 +131,9 @@ CH01~CH07을 읽어올 D-Register 주소는 시스템 공통값이 아니라 **�
 | ---------------------- | ------ | ------------------------------------------------------------------------------ |
 | `HasEquipmentPhoto`    | `bool` | 장비 사진(`slot=equipment`) 등록 여부. `GetPhotoFlagsAsync`가 조회 시점에 계산 |
 | `HasInstallationPhoto` | `bool` | 설치 사진(`slot=installation`) 등록 여부                                       |
+
+### 실제 등록 압축기 수 (응답 전용, 2026-10-22 추가)
+
+| 필드명                      | 타입  | 설명                                                                                                                                       |
+| --------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `RegisteredCompressorCount` | `int` | 이 장비에 실제 등록된 `Compressor` 행 수. `CompressorCount`(사양 칸)가 글자라서, 장비 목록의 "COMP#n" 버튼처럼 실제 압축기 수가 필요한 곳은 이 값을 쓴다 |

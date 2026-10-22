@@ -293,17 +293,17 @@ namespace HRMS.Migrations
                     b.Property<string>("BuildingNumber")
                         .HasColumnType("text");
 
-                    b.Property<decimal?>("ChargeAmount")
-                        .HasColumnType("numeric");
+                    b.Property<string>("ChargeAmount")
+                        .HasColumnType("text");
 
                     b.Property<int>("CommunicationStatus")
                         .HasColumnType("integer");
 
-                    b.Property<decimal?>("CompressorCapacity")
-                        .HasColumnType("numeric");
+                    b.Property<string>("CompressorCapacity")
+                        .HasColumnType("text");
 
-                    b.Property<int?>("CompressorCount")
-                        .HasColumnType("integer");
+                    b.Property<string>("CompressorCount")
+                        .HasColumnType("text");
 
                     b.Property<string>("CompressorManufacturer")
                         .HasColumnType("text");
@@ -314,11 +314,11 @@ namespace HRMS.Migrations
                     b.Property<string>("CondenserType")
                         .HasColumnType("text");
 
-                    b.Property<decimal?>("CoolingTowerCapacity")
-                        .HasColumnType("numeric");
+                    b.Property<string>("CoolingTowerCapacity")
+                        .HasColumnType("text");
 
-                    b.Property<int?>("CoolingTowerCount")
-                        .HasColumnType("integer");
+                    b.Property<string>("CoolingTowerCount")
+                        .HasColumnType("text");
 
                     b.Property<string>("CoolingTowerManufacturer")
                         .HasColumnType("text");
@@ -338,8 +338,8 @@ namespace HRMS.Migrations
                     b.Property<decimal?>("CoolingWaterOutletMin")
                         .HasColumnType("numeric");
 
-                    b.Property<decimal?>("DesignPressure")
-                        .HasColumnType("numeric");
+                    b.Property<string>("DesignPressure")
+                        .HasColumnType("text");
 
                     b.Property<string>("EvaporatorType")
                         .HasColumnType("text");
@@ -359,8 +359,8 @@ namespace HRMS.Migrations
                     b.Property<bool>("IsRunning")
                         .HasColumnType("boolean");
 
-                    b.Property<decimal?>("LegalRefrigerationCapacity")
-                        .HasColumnType("numeric");
+                    b.Property<string>("LegalRefrigerationCapacity")
+                        .HasColumnType("text");
 
                     b.Property<string>("Location")
                         .HasColumnType("text");
@@ -381,17 +381,17 @@ namespace HRMS.Migrations
                     b.Property<string>("Notes")
                         .HasColumnType("text");
 
-                    b.Property<decimal?>("OverPressureCutoff")
-                        .HasColumnType("numeric");
+                    b.Property<string>("OverPressureCutoff")
+                        .HasColumnType("text");
 
                     b.Property<string>("PermitNumber")
                         .HasColumnType("text");
 
-                    b.Property<decimal?>("RatedCurrent")
-                        .HasColumnType("numeric");
+                    b.Property<string>("RatedCurrent")
+                        .HasColumnType("text");
 
-                    b.Property<decimal?>("RatedVoltage")
-                        .HasColumnType("numeric");
+                    b.Property<string>("RatedVoltage")
+                        .HasColumnType("text");
 
                     b.Property<string>("Refrigerant")
                         .HasColumnType("text");
@@ -409,8 +409,8 @@ namespace HRMS.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("integer");
 
-                    b.Property<decimal?>("UsRefrigerationCapacity")
-                        .HasColumnType("numeric");
+                    b.Property<string>("UsRefrigerationCapacity")
+                        .HasColumnType("text");
 
                     b.Property<decimal?>("VoltageMax")
                         .HasColumnType("numeric");

@@ -14,9 +14,9 @@ namespace HRMS.Modules.RepairLog.Controllers;
 
 //--------------------------------------------------------------------------------//
 // 수리일지 조회/등록/수정/삭제/결재 API. 결재 판정은 Modules/Approval/ApprovalRules.cs를
-// 점검일지와 동일하게 재사용하고, 이 문서유형만의 고정 사양은 아래 Level1~3Mode 상수다:
-//   Level1(안전관리원) = NotApplicable("해당없음", 프론트 `/` 표시) → 실제 승인은 2단계
-//   Level2(안전관리책임자) / Level3(안전관리총괄자) = Required
+// 점검일지와 동일하게 재사용하고, 단계 구성은 ApprovalDocuments.ModesFor(RepairLog)가 정한다:
+//   Level1(안전관리원) / Level2(안전관리책임자) / Level3(안전관리총괄자) = 전부 Required
+//   (원래 Level1은 NotApplicable이었다가 2026-10-22 고객사 요청으로 3단계가 됐다)
 //
 // 권한 규칙(사용자 결정):
 //   - 조회/등록: 로그인한 사용자 누구나
@@ -156,7 +156,7 @@ public class RepairLogsController(AppDbContext db) : ControllerBase
 
     //--------------------------------------------------------------------------------//
     // POST api/repair-logs/{id}/approve — 호출자 본인의 Role+담당장비로 결재 레벨이 자동 결정된다.
-    // 안전관리원은 이 문서유형에서 결재 대상이 아니라(NotApplicable) 승인할 수 없다.
+    // 안전관리원(1단계)부터 결재한다 — 점검일지·운전일지와 같은 3단계다.
     //--------------------------------------------------------------------------------//
     [HttpPost("{id}/approve")]
     public async Task<ActionResult<RepairLogDto>> Approve(int id)
@@ -175,7 +175,7 @@ public class RepairLogsController(AppDbContext db) : ControllerBase
             return Forbid();
 
         if (!ApprovalLevels.CanApprove(log, Modes, level))
-            return Conflict("지금은 이 단계를 승인할 수 없습니다(결재 대상이 아닌 단계이거나, 이미 승인됨, 또는 이전 단계 미완료).");
+            return Conflict("지금은 이 단계를 승인할 수 없습니다(이미 승인됨, 또는 이전 단계 미완료).");
 
         var user = await db.Users.FindAsync(userId);
         ApprovalLevels.Set(log, level, userId, user!.FullName, DateTimeOffset.UtcNow);
@@ -244,8 +244,8 @@ public class RepairLogsController(AppDbContext db) : ControllerBase
         return Ok(ToDto(log));
     }
 
-    // 결재가 한 단계라도 실제로 승인됐는지. Level1은 NotApplicable이라 채워지지 않지만,
-    // 모드가 바뀌어도 그대로 동작하도록 세 레벨 전부 본다.
+    // 결재가 한 단계라도 실제로 승인됐는지. 안전관리원(1단계)이 승인해도 수정이 잠긴다
+    // (점검일지와 같은 원칙).
     private static bool HasAnyApproval(Models.RepairLog log) =>
         log.Level1ApprovedAt is not null || log.Level2ApprovedAt is not null || log.Level3ApprovedAt is not null;
 

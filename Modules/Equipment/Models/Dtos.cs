@@ -22,6 +22,10 @@ namespace HRMS.Modules.Equipment.Models;
 // HasEquipmentPhoto/HasInstallationPhoto: 장비 이력카드용 사진 2장(장비 사진/설치 사진)이
 // 실제로 등록돼 있는지만 알려주는 가벼운 플래그다 — 사진 원본은 여기 안 실리고
 // Modules/Attachment(GET /api/attachments?ownerType=EquipmentPhoto&ownerId={id})로 따로 받는다.
+//
+// RegisteredCompressorCount: 실제 등록된 압축기 행 수(응답 전용, 2026-10-22 추가). CompressorCount는
+// 이력카드 사양 칸이라 글자("2대" 등)가 될 수 있어서, 장비 목록의 "COMP#n" 버튼처럼 실제 압축기
+// 수가 필요한 곳은 이 값을 쓴다.
 //------------------------------------------------------------------------------//
 public record EquipmentDto(
     int Id,
@@ -35,24 +39,24 @@ public record EquipmentDto(
     string? Manufacturer,
     string? PermitNumber,
     string? ManagementNumber,
-    decimal? LegalRefrigerationCapacity,
-    decimal? UsRefrigerationCapacity,
+    string? LegalRefrigerationCapacity,
+    string? UsRefrigerationCapacity,
     string? Refrigerant,
-    decimal? ChargeAmount,
+    string? ChargeAmount,
     string? CompressorManufacturer,
     string? CompressorType,
-    int? CompressorCount,
-    decimal? CompressorCapacity,
+    string? CompressorCount,
+    string? CompressorCapacity,
     string? CoolingTowerManufacturer,
     string? CoolingTowerType,
-    int? CoolingTowerCount,
-    decimal? CoolingTowerCapacity,
+    string? CoolingTowerCount,
+    string? CoolingTowerCapacity,
     string? CondenserType,
     string? EvaporatorType,
-    decimal? DesignPressure,
-    decimal? OverPressureCutoff,
-    decimal? RatedVoltage,
-    decimal? RatedCurrent,
+    string? DesignPressure,
+    string? OverPressureCutoff,
+    string? RatedVoltage,
+    string? RatedCurrent,
     string? SafetyValve,
     string? Notes,
     bool HasCoolingWater,
@@ -75,7 +79,8 @@ public record EquipmentDto(
     bool HasAlarm,
     bool IsEmergencyStopped,
     bool HasEquipmentPhoto,
-    bool HasInstallationPhoto);
+    bool HasInstallationPhoto,
+    int RegisteredCompressorCount);
 
 //------------------------------------------------------------------------------//
 // POST/PUT 요청 본문. EquipmentDto에서 자동 계산값 3개(IsRunning/CommunicationStatus/HasAlarm)와
@@ -93,24 +98,24 @@ public record SaveEquipmentRequest(
     string? Manufacturer,
     string? PermitNumber,
     string? ManagementNumber,
-    decimal? LegalRefrigerationCapacity,
-    decimal? UsRefrigerationCapacity,
+    string? LegalRefrigerationCapacity,
+    string? UsRefrigerationCapacity,
     string? Refrigerant,
-    decimal? ChargeAmount,
+    string? ChargeAmount,
     string? CompressorManufacturer,
     string? CompressorType,
-    int? CompressorCount,
-    decimal? CompressorCapacity,
+    string? CompressorCount,
+    string? CompressorCapacity,
     string? CoolingTowerManufacturer,
     string? CoolingTowerType,
-    int? CoolingTowerCount,
-    decimal? CoolingTowerCapacity,
+    string? CoolingTowerCount,
+    string? CoolingTowerCapacity,
     string? CondenserType,
     string? EvaporatorType,
-    decimal? DesignPressure,
-    decimal? OverPressureCutoff,
-    decimal? RatedVoltage,
-    decimal? RatedCurrent,
+    string? DesignPressure,
+    string? OverPressureCutoff,
+    string? RatedVoltage,
+    string? RatedCurrent,
     string? SafetyValve,
     string? Notes,
     bool HasCoolingWater,
