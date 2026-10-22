@@ -188,11 +188,13 @@
 
 해당 압축기의 CH01~07 채널 설정(경보 상/하한, 표시 소수점 자리수 등). `value`를 실제 표시값으로 바꾸려면 이 API로 받은 `decimalPlaces`만큼 소수점을 적용하면 된다 (예: raw `-123`, `decimalPlaces: 1` → `-12.3`).
 
+**채널 기본 이름**(2026-10-22 고객사 요청으로 변경): CH01 `흡입온도`(옛 저온), CH02 `토출온도`(옛 고온), CH03 `오일온도`, CH04 `흡입압력`(옛 저압), CH05 `토출압력`(옛 고압), CH06 `오일압력`, CH07 `운전전류`. 기존 DB도 마이그레이션(`RenameSensorChannels`)으로 바뀐다 — 옛 기본 이름 그대로인 채널만 바꾸고 사용자가 직접 고친 이름은 그대로 둔다. 응답 형식은 같고 `channelName` 값만 바뀐다. 변경 전에 기록된 경보 이벤트의 `message` 문구는 옛 이름 그대로 남는다.
+
 **응답 예시**
 ```json
 [
   {
-    "channelNo": "CH01", "channelName": "저온", "unit": "℃",
+    "channelNo": "CH01", "channelName": "흡입온도", "unit": "℃",
     "enabled": true, "lowerLimit": 0, "upperLimit": 1000,
     "alarmEnabled": true, "alarmDelaySeconds": 30, "alarmClearDelaySeconds": 30,
     "decimalPlaces": 1, "registerAddress": 360
@@ -439,7 +441,7 @@
 - 요일별 값은 `"O"`(정상) / `"/"`(미해당) / `"X"`(이상) 또는 `null`만 허용된다. 그 외 값이면 `400`.
 - 응답 형식은 12번 조회 API와 동일하다.
 
-**오류**: 없는 장비 `equipmentId`면 `404`. `weekStartDate`가 일요일이 아니거나 값/항목번호가 잘못되면 `400`. **결재가 하나라도 진행된 문서는 `409`** — 이 경우 시스템관리자의 결재 리셋(15번)을 거쳐야 다시 수정할 수 있다.
+**오류**: 없는 장비 `equipmentId`면 `404`. `weekStartDate`가 일요일이 아니거나 값/항목번호가 잘못되면 `400`. **같은 항목 번호(`itemNo`)가 두 번 들어와도 `400`**("점검항목 번호가 중복되었습니다: 1" — 2026-10-06 수정, 그 전에는 `500`이었다). **결재가 하나라도 진행된 문서는 `409`** — 이 경우 시스템관리자의 결재 리셋(15번)을 거쳐야 다시 수정할 수 있다.
 
 ## 14. `POST /api/inspection-logs/{id}/approve`
 
@@ -635,7 +637,7 @@
 **요청**
 ```json
 {
-  "channelName": "저온", "unit": "℃", "enabled": true,
+  "channelName": "흡입온도", "unit": "℃", "enabled": true,
   "lowerLimit": 0, "upperLimit": 1000,
   "alarmEnabled": true, "alarmDelaySeconds": 30, "alarmClearDelaySeconds": 30,
   "decimalPlaces": 1, "registerAddress": 360

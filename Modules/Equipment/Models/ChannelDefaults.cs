@@ -10,10 +10,10 @@ public static class ChannelDefaults
 {
     private static readonly Dictionary<ChannelNo, (string Name, string Unit)> NamesAndUnits = new()
     {
-        [ChannelNo.CH01] = ("저온", "℃"),
-        [ChannelNo.CH02] = ("고온", "℃"),
-        [ChannelNo.CH04] = ("저압", "MPa"),
-        [ChannelNo.CH05] = ("고압", "MPa"),
+        [ChannelNo.CH01] = ("흡입온도", "℃"), // 2026-10-22 고객사 요청으로 저온→흡입온도
+        [ChannelNo.CH02] = ("토출온도", "℃"), // 고온→토출온도
+        [ChannelNo.CH04] = ("흡입압력", "MPa"), // 저압→흡입압력
+        [ChannelNo.CH05] = ("토출압력", "MPa"), // 고압→토출압력
         [ChannelNo.CH06] = ("오일압력", "MPa"),
         [ChannelNo.CH07] = ("운전전류", "A"),
     };

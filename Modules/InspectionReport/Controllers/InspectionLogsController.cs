@@ -77,6 +77,14 @@ public class InspectionLogsController(AppDbContext db) : ControllerBase
                     return BadRequest($"점검 결과 값은 O, /, X 중 하나여야 합니다: {v}");
         }
 
+        //--------------------------------------------------------------------------------//
+        // 같은 항목 번호가 두 번 오면 거부한다(2026-10-06). 결과 테이블의 키가 (LogId, ItemNo)라서
+        // 그대로 저장하면 DB가 키 중복으로 거부해 500이 났다 — 어느 값을 저장할지도 모호하다.
+        //--------------------------------------------------------------------------------//
+        var duplicated = request.Results.GroupBy(r => r.ItemNo).FirstOrDefault(g => g.Count() > 1);
+        if (duplicated is not null)
+            return BadRequest($"점검항목 번호가 중복되었습니다: {duplicated.Key}");
+
         var log = await db.InspectionLogs
             .Include(l => l.Results)
             .FirstOrDefaultAsync(l => l.EquipmentId == request.EquipmentId && l.WeekStartDate == request.WeekStartDate);

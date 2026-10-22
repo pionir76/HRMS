@@ -8,7 +8,7 @@ public class CompressorChannelSetting
 
     // 채널 한글 명칭/단위. 전 압축기 공통 값(overview.md 8.1)이라 사실상 ChannelNo로 결정되지만,
     // 경보 메시지 생성 시 한 행 조회만으로 다 얻을 수 있도록 여기 같이 저장한다(사용자 결정).
-    public string ChannelName { get; set; } = ""; // 예: 저온, 고온, 운전전류
+    public string ChannelName { get; set; } = ""; // 예: 흡입온도, 토출온도, 운전전류
     public string Unit { get; set; } = ""; // 예: ℃, MPa, A
 
     //----------------------------------------------------------------------------------//

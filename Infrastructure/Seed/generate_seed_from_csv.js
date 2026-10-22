@@ -93,8 +93,8 @@ lines.push(`INSERT INTO "CompressorChannelSettings" ("CompressorId", "ChannelNo"
 lines.push(`SELECT c."Id", ch."no", ch."name", ch."unit", true, 0, 1000, true, 30, 30, ch."dp"`);
 lines.push(`FROM "Compressors" c CROSS JOIN (VALUES`);
 lines.push([
-  `  (1, '저온', '℃', 1)`, `  (2, '고온', '℃', 1)`, `  (3, '오일온도', '℃', 1)`,
-  `  (4, '저압', 'MPa', 2)`, `  (5, '고압', 'MPa', 2)`, `  (6, '오일압력', 'MPa', 2)`, `  (7, '운전전류', 'A', 1)`
+  `  (1, '흡입온도', '℃', 1)`, `  (2, '토출온도', '℃', 1)`, `  (3, '오일온도', '℃', 1)`,
+  `  (4, '흡입압력', 'MPa', 2)`, `  (5, '토출압력', 'MPa', 2)`, `  (6, '오일압력', 'MPa', 2)`, `  (7, '운전전류', 'A', 1)`
 ].join(",\n"));
 lines.push(`) AS ch("no", "name", "unit", "dp");`);
 lines.push("");
