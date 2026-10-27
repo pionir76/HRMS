@@ -93,17 +93,28 @@ public static class EquipmentStatusAggregator
         if (equipment.RunningCurrentThreshold is not { } threshold)
             return false;
 
-        //--------------------------------------------------------------------------------//
-        // 통신이 끊기거나(끊김) 막 끊긴 상태(재접속중)인 압축기는 CH07 값을 신뢰할 수 없으므로
-        // 이전 값이 임계값을 넘었더라도 정지로 간주한다. 값을 갱신할 방법이 없어 그대로 얼어있는
-        // 값이라, 이 조건이 없으면 통신이 끊긴 뒤에도 계속 운전 중으로 잘못 판정된다.
-        //--------------------------------------------------------------------------------//
         return members.Any(c =>
-            c.CommunicationStatus == CommunicationStatus.연결됨 &&
-            channelsByCompressor.TryGetValue(c.Id, out var channels) &&
-            channels.FirstOrDefault(ch => ch.ChannelNo == ChannelNo.CH07) is { } ch07 &&
-            ch07.Value > threshold);
+            IsCompressorRunning(threshold, c.CommunicationStatus,
+                channelsByCompressor.TryGetValue(c.Id, out var channels)
+                    ? channels.FirstOrDefault(ch => ch.ChannelNo == ChannelNo.CH07)?.Value
+                    : null));
     }
+
+    //--------------------------------------------------------------------------------//
+    // 압축기 한 대의 운전 여부. 장비는 "소속 압축기 중 하나라도 운전이면 운전"이라, 장비 판정
+    // (위 IsRunning)과 실시간 측정값 API의 압축기별 isRunning이 이 함수 하나를 같이 쓴다 —
+    // 둘이 따로 계산하면 "압축기는 전부 정지인데 장비는 운전" 같은 어긋남이 생길 수 있다.
+    //
+    // 통신이 끊기거나(끊김) 막 끊긴 상태(재접속중)인 압축기는 CH07 값을 신뢰할 수 없으므로
+    // 이전 값이 임계값을 넘었더라도 정지로 간주한다. 값을 갱신할 방법이 없어 그대로 얼어있는
+    // 값이라, 이 조건이 없으면 통신이 끊긴 뒤에도 계속 운전 중으로 잘못 판정된다.
+    // 임계값이 없으면(미설정) 판정하지 않고 정지로 본다.
+    //--------------------------------------------------------------------------------//
+    public static bool IsCompressorRunning(short? threshold, CommunicationStatus communicationStatus, short? ch07Value) =>
+        threshold is { } t &&
+        communicationStatus == CommunicationStatus.연결됨 &&
+        ch07Value is { } value &&
+        value > t;
 
     private static AlarmStatus AggregateAlarm(IEnumerable<AlarmStatus> statuses)
     {

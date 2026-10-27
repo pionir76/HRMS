@@ -71,9 +71,35 @@ public class CompressorsController(AppDbContext db) : ControllerBase
             .OrderBy(s => s.ChannelNo)
             .ToListAsync();
 
-        return Ok(entities.Select(s => new ChannelSettingDto(
-            s.ChannelNo.ToString(), s.ChannelName, s.Unit, s.Enabled, s.LowerLimit, s.UpperLimit,
-            s.AlarmEnabled, s.AlarmDelaySeconds, s.AlarmClearDelaySeconds, s.DecimalPlaces, s.RegisterAddress)).ToList());
+        return Ok(entities.Select(ToSettingDto).ToList());
+    }
+
+    //---------------------------------------------------------------------------//
+    // GET api/compressors/channel-settings — 운영 장비 압축기 전체의 채널 설정을 한 번에
+    // (2026-10-27 추가). 실시간 현황 "실시간 측정값" 보기가 처음 한 번과 몇 분마다 받아서
+    // 채널 이름·단위·소수점·사용 여부를 그린다. 3초마다 오는 측정값(live-values)에 섞지 않은 건
+    // 거의 바뀌지 않는 값을 매번 반복해서 보내지 않기 위해서다.
+    // 대상·정렬은 위 GET api/compressors와 같다. 고정 경로라 "{id}/..." 라우트와 겹치지 않는다.
+    //---------------------------------------------------------------------------//
+    [HttpGet("channel-settings")]
+    public async Task<ActionResult<List<CompressorChannelSettingsDto>>> GetAllChannelSettings()
+    {
+        var compressorIds = await (
+            from c in db.Compressors
+            join e in db.Equipments on c.EquipmentId equals e.Id
+            where e.Status == EquipmentStatus.운영
+            orderby e.BuildingName, e.Name, c.SequenceNo
+            select c.Id
+        ).ToListAsync();
+
+        var settingsByCompressor = (await db.CompressorChannelSettings
+                .Where(s => compressorIds.Contains(s.CompressorId))
+                .OrderBy(s => s.ChannelNo)
+                .ToListAsync())
+            .ToLookup(s => s.CompressorId);
+
+        return Ok(compressorIds.Select(id => new CompressorChannelSettingsDto(
+            id, settingsByCompressor[id].Select(ToSettingDto).ToList())).ToList());
     }
 
     //---------------------------------------------------------------------------//
@@ -179,10 +205,10 @@ public class CompressorsController(AppDbContext db) : ControllerBase
         setting.RegisterAddress = request.Enabled ? request.RegisterAddress : null;
         await db.SaveChangesAsync();
 
-        return Ok(new ChannelSettingDto(
-            setting.ChannelNo.ToString(), setting.ChannelName, setting.Unit, setting.Enabled,
-            setting.LowerLimit, setting.UpperLimit, setting.AlarmEnabled,
-            setting.AlarmDelaySeconds, setting.AlarmClearDelaySeconds, setting.DecimalPlaces,
-            setting.RegisterAddress));
+        return Ok(ToSettingDto(setting));
     }
+
+    private static ChannelSettingDto ToSettingDto(CompressorChannelSetting s) => new(
+        s.ChannelNo.ToString(), s.ChannelName, s.Unit, s.Enabled, s.LowerLimit, s.UpperLimit,
+        s.AlarmEnabled, s.AlarmDelaySeconds, s.AlarmClearDelaySeconds, s.DecimalPlaces, s.RegisterAddress);
 }

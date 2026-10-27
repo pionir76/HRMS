@@ -188,6 +188,49 @@ public record CompressorStatusDto(
     bool HasAlarm);
 
 //------------------------------------------------------------------------------//
+// 실시간 현황 "실시간 측정값" 보기용(2026-10-27 추가). GET /api/equipments/live-values.
+// 운영 장비 전체의 압축기 센서값을 한 번에 내려준다 — 측정값 API(5번)는 압축기 1대씩이라
+// 236대를 3초마다 따로 부를 수 없어서다. 장비 필드는 EquipmentStatusDto와 같다.
+//
+// 채널 설정(이름·단위·소수점)은 3초마다 같은 값을 반복하지 않도록 여기 넣지 않고
+// GET /api/compressors/channel-settings(전체)로 따로 받는다.
+//------------------------------------------------------------------------------//
+public record EquipmentLiveValuesDto(
+    int Id,
+    string Region,
+    string BuildingName,
+    string Name,
+    bool IsRunning,
+    string CommunicationStatus,
+    bool HasAlarm,
+    bool IsEmergencyStopped,
+    List<CompressorLiveValuesDto> Compressors);
+
+// IsRunning: 이 압축기 하나의 운전 여부(EquipmentStatusAggregator.IsCompressorRunning — 장비 판정과 같은 함수).
+// MeasuredAt: 마지막으로 값을 받은 시각(UTC). 한 번도 못 받았으면 null.
+public record CompressorLiveValuesDto(
+    int Id,
+    int SequenceNo,
+    string CommunicationStatus,
+    bool HasAlarm,
+    bool IsRunning,
+    string? IpAddress,
+    DateTimeOffset? MeasuredAt,
+    List<ChannelLiveValueDto> Channels);
+
+// Value: 원시값(raw int16). 사용하지 않는 채널이거나 한 번도 받은 적 없으면 null.
+// Alarm: 그 채널이 확정 경보인지(경보발생·정상복귀대기 — hasAlarm과 같은 기준).
+public record ChannelLiveValueDto(
+    string ChannelNo,
+    short? Value,
+    bool Alarm);
+
+// GET /api/compressors/channel-settings(전체) 응답의 압축기 한 대분. Settings는 5-1번과 같은 7개.
+public record CompressorChannelSettingsDto(
+    int CompressorId,
+    List<ChannelSettingDto> Settings);
+
+//------------------------------------------------------------------------------//
 // 실시간 현황 화면 상단 카운트용 집계. GET /api/summary.
 //
 // TotalEquipmentCount/TotalCompressorCount는 이름과 달리 **운영 상태 장비 기준**이다

@@ -10,13 +10,18 @@
 \pset pager off
 
 \echo
-\echo ===== [스키마] 마이그레이션 3개가 나와야 한다 =====
+\echo ===== [스키마] 마이그레이션 6개가 나와야 한다 (마지막: ResetRepairLogApprovals) =====
 SELECT "MigrationId" FROM "__EFMigrationsHistory" ORDER BY 1;
 
 \echo ===== [장비 데이터] 158 / 246 / 1722 =====
 SELECT (SELECT COUNT(*) FROM "Equipments") AS equipments,
        (SELECT COUNT(*) FROM "Compressors") AS compressors,
        (SELECT COUNT(*) FROM "CompressorChannelSettings") AS channel_settings;
+
+\echo ===== [채널 이름] 흡입온도/토출온도/오일온도/흡입압력/토출압력/오일압력/운전전류 각 246 =====
+\echo (저온/고온/저압/고압이 보이면 예전 seed_from_csv.sql로 넣은 것이다 — setup.md 12.0)
+SELECT "ChannelNo", "ChannelName", COUNT(*) AS compressors
+FROM "CompressorChannelSettings" GROUP BY 1, 2 ORDER BY 1, 2;
 
 \echo ===== [장비 데이터] 운영 장비 149 / 수집 대상 압축기 223 =====
 SELECT (SELECT COUNT(*) FROM "Equipments" WHERE "Status" = 0) AS operating_equipments,
@@ -50,7 +55,7 @@ FROM "CompressorMeasurements" WHERE "MeasuredAt" > now() - interval '1 minute';
 SELECT COUNT(*) AS communication_alarms_last_1h
 FROM "EventLogs" WHERE "Category" = 2 AND "CreatedAt" > now() - interval '1 hour';
 
-\echo ===== [참고] IP가 없어 항상 끊김으로 보이는 운영 장비 압축기 (13대) =====
+\echo ===== [참고] IP가 없어 수집하지 못하는 운영 장비 압축기 (13대 — Doc/ip-assignment-list.md, setup.md 12.6) =====
 SELECT e."Region", e."BuildingName", e."Name", COUNT(*) AS no_ip_compressors
 FROM "Compressors" c JOIN "Equipments" e ON e."Id" = c."EquipmentId"
 WHERE e."Status" = 0 AND c."IpAddress" IS NULL

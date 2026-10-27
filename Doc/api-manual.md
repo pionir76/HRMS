@@ -28,7 +28,7 @@
   ```
 
   DB 연결이 끊겼거나 마지막 폴링이 30초 이상 전이면 같은 형식으로 `503`을 반환한다.
-- **장비 상태가 `운영`이 아닌 장비는 실시간 현황 계열 API에 나오지 않는다**(사양 확정 2026-09-17 — 수집도 하지 않는다). 대상: `GET /api/compressors`(4번), `GET /api/summary`(8번), `GET /api/equipments/status`(70번). 장비관리용 `GET /api/equipments`(1번)·`GET /api/equipments/{id}`(2번)는 상태를 되돌릴 수 있도록 **모든 상태의 장비**를 그대로 내려준다 — 모니터링 화면에서 1번을 쓴다면 프론트가 `status === "운영"`으로 걸러야 한다.
+- **장비 상태가 `운영`이 아닌 장비는 실시간 현황 계열 API에 나오지 않는다**(사양 확정 2026-09-17 — 수집도 하지 않는다). 대상: `GET /api/compressors`(4번), `GET /api/summary`(8번), `GET /api/equipments/status`(70번), `GET /api/equipments/live-values`(79번), `GET /api/compressors/channel-settings`(80번). 장비관리용 `GET /api/equipments`(1번)·`GET /api/equipments/{id}`(2번)는 상태를 되돌릴 수 있도록 **모든 상태의 장비**를 그대로 내려준다 — 모니터링 화면에서 1번을 쓴다면 프론트가 `status === "운영"`으로 걸러야 한다.
 
 ## enum 값 목록
 
@@ -1609,6 +1609,92 @@
 
 ---
 
+## 실시간 측정값 — 79~80번
+
+실시간 현황 리스트 모드의 **"실시간 측정값" 보기**(운영 장비의 모든 압축기 센서값을 한 표로)용이다(2026-10-27 추가). 측정값 API(5번)는 압축기 1대씩이라 236대를 3초마다 따로 부를 수 없어서 한 번에 받는 API를 따로 뒀다.
+
+| API | 부르는 주기 | 내용 |
+|---|---|---|
+| 79. `GET /api/equipments/live-values` | 3초마다 | 장비·압축기 상태 + 압축기별 CH01~07 원시값과 채널 경보 |
+| 80. `GET /api/compressors/channel-settings` | 처음 한 번 + 몇 분마다 | 압축기별 채널 설정(이름·단위·소수점·사용 여부 등) |
+
+채널 설정은 거의 바뀌지 않는 값이라 3초마다 반복해서 보내지 않도록 79번에 넣지 않았다. 화면은 80번을 `compressorId`로 찾아 79번 값에 붙여 쓴다.
+
+## 79. `GET /api/equipments/live-values`
+
+운영 장비 전체의 압축기별 최신 측정값. 권한: 로그인한 누구나.
+
+- **대상·정렬은 70번과 같다** — 운영 장비만, `buildingName` → `name`, `compressors`는 `sequenceNo` 순.
+- 장비 필드(`id`, `region`, `buildingName`, `name`, `isRunning`, `communicationStatus`, `hasAlarm`, `isEmergencyStopped`)는 70번과 같다(`status`는 항상 `운영`이라 뺐다).
+- 크기: 2026-10-27 개발 DB 기준 약 145KB(장비 149대, 압축기 236대), 서버 응답 약 10~20ms.
+
+**압축기 필드**
+
+| 필드 | 설명 |
+|---|---|
+| `id`, `sequenceNo`, `communicationStatus`, `hasAlarm` | 70번과 같다 |
+| `isRunning` | **이 압축기 하나의 운전 여부.** 연결됨이고 운전전류(CH07)가 장비의 `runningCurrentThreshold`를 넘으면 `true`. 장비 `isRunning`은 "압축기 중 하나라도 운전"이라 **항상 `compressors[].isRunning` 중 하나라도 `true`인지와 같다**(서버가 같은 판정 함수를 쓴다). 통신이 끊긴 압축기와 임계값이 없는 장비는 `false` |
+| `ipAddress` | IP 주소. 없으면 `null` |
+| `measuredAt` | 마지막으로 값을 받은 시각(UTC). 한 번도 못 받았으면 `null`. 통신이 끊기면 갱신되지 않으므로 끊긴 시점을 짐작할 수 있다 |
+| `channels` | CH01~CH07 **항상 7개**, 채널 번호 순 |
+
+**채널 필드**
+
+| 필드 | 설명 |
+|---|---|
+| `channelNo` | `CH01`~`CH07` |
+| `value` | 원시값(raw int16, 5번과 같음 — 소수점 변환은 80번의 `decimalPlaces`로 프론트가 한다). **사용하지 않는 채널(80번 `enabled: false`)이나 한 번도 받은 적 없는 값은 `null`.** 통신이 끊긴 압축기는 마지막으로 받은 값이 그대로 온다(자정이 지나도 끊겨 있으면 0) — 화면은 `communicationStatus`를 보고 `?`로 표시한다 |
+| `alarm` | 그 채널이 **확정 경보**인지(경보발생·정상복귀대기면 `true` — `hasAlarm`과 같은 기준, 경보 지연시간이 반영된 서버 판정값). 압축기 `hasAlarm`은 항상 "채널 중 하나라도 `alarm`"과 같다. 통신이 끊긴 압축기, 운전 중이 아닌 장비, 사용하지 않는 채널은 `false` |
+
+**응답 예시**
+```json
+[
+  {
+    "id": 96, "region": "C 지구", "buildingName": "NVH시험3동", "name": "고저온챔버",
+    "isRunning": true, "communicationStatus": "연결됨", "hasAlarm": false, "isEmergencyStopped": false,
+    "compressors": [
+      {
+        "id": 161, "sequenceNo": 1, "communicationStatus": "연결됨", "hasAlarm": false, "isRunning": true,
+        "ipAddress": "10.90.178.233", "measuredAt": "2026-10-27T00:54:25.058321+00:00",
+        "channels": [
+          { "channelNo": "CH01", "value": 478, "alarm": false },
+          { "channelNo": "CH02", "value": 369, "alarm": false },
+          { "channelNo": "CH03", "value": null, "alarm": false },
+          "...(CH07까지 7개)..."
+        ]
+      }
+    ]
+  }
+]
+```
+
+**서버가 어디서 값을 읽나**: 폴링 서비스는 최신값을 메모리에 따로 들고 있지 않고, 3초마다 DB의 최신값 테이블(압축기·채널당 1행)에 저장한다. 이 API도 5번·70번처럼 그 테이블을 읽는다. 조회 4번에 10~20ms라 3초 주기로 불러도 부담이 없어서, 메모리 캐시는 두지 않았다(값이 DB와 어긋날 여지를 만들지 않기 위해).
+
+## 80. `GET /api/compressors/channel-settings`
+
+운영 장비 압축기 전체의 채널 설정을 한 번에 받는다. 권한: 로그인한 누구나.
+
+- 대상·정렬은 4번(`GET /api/compressors`)과 같다 — 운영 장비의 압축기, `buildingName` → `name` → `sequenceNo`. 79번에 나오는 압축기와 **같은 집합**이다.
+- `settings`는 **5-1번(`GET /api/compressors/{id}/channel-settings`)과 똑같은 7개**(CH01~CH07 순)다. 필드 설명은 5-1번 참고.
+- 화면은 처음 한 번 받고 몇 분마다 새로 받으면 된다. 담당자가 채널 설정(25번)을 바꾸면 다음에 받을 때 반영된다.
+- 크기: 약 360KB(압축기 236대). 자주 부르는 API가 아니라서 줄이지 않았다.
+
+**응답 예시**
+```json
+[
+  {
+    "compressorId": 161,
+    "settings": [
+      { "channelNo": "CH01", "channelName": "흡입온도", "unit": "℃", "enabled": true, "lowerLimit": 0, "upperLimit": 1000,
+        "alarmEnabled": true, "alarmDelaySeconds": 30, "alarmClearDelaySeconds": 30, "decimalPlaces": 1, "registerAddress": 360 },
+      "...(CH07까지 7개)..."
+    ]
+  }
+]
+```
+
+---
+
 ## 아직 없는 API (참고)
 
-- (점검일지는 9~15번, 운전일지는 16~20번, 장비관리는 21~25번, 첨부파일은 26~29번, 장비 검사이력은 30~34번, 수리일지는 35~42번, 교육훈련 일지는 43~50번, 공지사항은 51~57번, 자료 조회는 58번, 조직관리는 59~69번, 실시간 현황(대시보드)은 70~71번, 일괄 결재는 72~74번, 비상정지는 75~76번, 설정값 일괄 적용은 77~78번 항목으로 구현됨. 자유게시판은 사양에서 제거되어 공지사항으로 통합됨)
+- (점검일지는 9~15번, 운전일지는 16~20번, 장비관리는 21~25번, 첨부파일은 26~29번, 장비 검사이력은 30~34번, 수리일지는 35~42번, 교육훈련 일지는 43~50번, 공지사항은 51~57번, 자료 조회는 58번, 조직관리는 59~69번, 실시간 현황(대시보드)은 70~71번, 일괄 결재는 72~74번, 비상정지는 75~76번, 설정값 일괄 적용은 77~78번, 실시간 측정값은 79~80번 항목으로 구현됨. 자유게시판은 사양에서 제거되어 공지사항으로 통합됨)

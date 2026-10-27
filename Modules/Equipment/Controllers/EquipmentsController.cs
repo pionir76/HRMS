@@ -81,6 +81,75 @@ public class EquipmentsController(AppDbContext db) : ControllerBase
         )).ToList());
     }
 
+    //---------------------------------------------------------------------------//
+    // GET api/equipments/live-values — 실시간 현황 "실시간 측정값" 보기용(2026-10-27 추가).
+    // 운영 장비 전체의 압축기별 CH01~07 최신값과 채널 경보 상태를 한 번에 내려준다.
+    // 대상·정렬은 위 status와 같다(운영 장비만, 압축기는 SequenceNo 순).
+    //
+    // 3초마다 불리지만 폴링 서비스의 메모리가 아니라 DB를 읽는다 — 폴링 서비스는 최신값을 메모리에
+    // 따로 들고 있지 않고 매 사이클 CompressorSensorCurrents(압축기·채널당 1행)에 저장하며,
+    // 5번·70번 API도 같은 방식이다. 쿼리 4번(장비·압축기·최신값·사용 여부)이라 이 규모에서는
+    // 부담이 없고, 메모리 캐시를 따로 두면 DB와 값이 어긋날 여지만 생긴다.
+    //---------------------------------------------------------------------------//
+    [HttpGet("live-values")]
+    public async Task<ActionResult<List<EquipmentLiveValuesDto>>> GetLiveValues()
+    {
+        var equipments = await db.Equipments
+            .Where(e => e.Status == EquipmentStatus.운영)
+            .OrderBy(e => e.BuildingName).ThenBy(e => e.Name)
+            .ToListAsync();
+
+        var ids = equipments.Select(e => e.Id).ToList();
+        var compressorsByEquipment = (await db.Compressors
+                .Where(c => ids.Contains(c.EquipmentId))
+                .OrderBy(c => c.SequenceNo)
+                .ToListAsync())
+            .ToLookup(c => c.EquipmentId);
+
+        var compressorIds = compressorsByEquipment.SelectMany(g => g).Select(c => c.Id).ToList();
+        var currents = (await db.CompressorSensorCurrents
+                .Where(s => compressorIds.Contains(s.CompressorId))
+                .ToListAsync())
+            .ToDictionary(s => (s.CompressorId, s.ChannelNo));
+
+        //---------------------------------------------------------------------------//
+        // 사용 안 하는 채널은 값을 null로 내린다. 폴링은 주소가 없는 채널을 저장하지 않지만,
+        // 사용하다가 끈 채널은 끄기 전의 마지막 값이 최신값 테이블에 그대로 남아 있어서다.
+        //---------------------------------------------------------------------------//
+        var enabledChannels = (await db.CompressorChannelSettings
+                .Where(s => compressorIds.Contains(s.CompressorId) && s.Enabled)
+                .Select(s => new { s.CompressorId, s.ChannelNo })
+                .ToListAsync())
+            .Select(s => (s.CompressorId, s.ChannelNo))
+            .ToHashSet();
+
+        return Ok(equipments.Select(e => new EquipmentLiveValuesDto(
+            e.Id, e.Region, e.BuildingName, e.Name,
+            e.IsRunning, e.CommunicationStatus.ToString(), e.AlarmStatus.IsConfirmedAlarm(), e.IsEmergencyStopped,
+            compressorsByEquipment[e.Id].Select(c =>
+            {
+                var channels = Enum.GetValues<ChannelNo>().Select(ch =>
+                {
+                    currents.TryGetValue((c.Id, ch), out var current);
+                    bool enabled = enabledChannels.Contains((c.Id, ch));
+                    return new ChannelLiveValueDto(ch.ToString(),
+                        enabled ? current?.Value : null,
+                        enabled && current is not null && current.AlarmStatus.IsConfirmedAlarm());
+                }).ToList();
+
+                currents.TryGetValue((c.Id, ChannelNo.CH07), out var ch07);
+                var measuredAt = Enum.GetValues<ChannelNo>()
+                    .Select(ch => currents.TryGetValue((c.Id, ch), out var s) ? s.MeasuredAt : (DateTimeOffset?)null)
+                    .Max();
+
+                return new CompressorLiveValuesDto(
+                    c.Id, c.SequenceNo, c.CommunicationStatus.ToString(), c.AlarmStatus.IsConfirmedAlarm(),
+                    EquipmentStatusAggregator.IsCompressorRunning(e.RunningCurrentThreshold, c.CommunicationStatus, ch07?.Value),
+                    c.IpAddress, measuredAt, channels);
+            }).ToList()
+        )).ToList());
+    }
+
     // GET api/equipments/{id} — 장비 단건
     [HttpGet("{id}")]
     public async Task<ActionResult<EquipmentDto>> GetOne(int id)
